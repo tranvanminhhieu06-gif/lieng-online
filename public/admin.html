@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Liêng — Trang quản lý</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gold-bright:#f0cd7a; --gold:#c9a24b; --gold-dark:#7a5c22;
+    --ivory:#efe6d3; --ink:#211610;
+    --green:#2f8c63; --red:#c9403f;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; min-height:100%;
+    background:radial-gradient(ellipse at 50% -10%, #1a2a22 0%, #060b08 55%, #030503 100%);
+    color:var(--ivory); font-family:'Inter',sans-serif;
+  }
+  button{font-family:inherit;}
+  .wrap{ max-width:900px; margin:0 auto; padding:26px 16px 60px; display:flex; flex-direction:column; gap:16px; }
+
+  h1{
+    font-family:'Be Vietnam Pro',sans-serif; font-weight:900; letter-spacing:.14em;
+    font-size:clamp(22px,4vw,32px); margin:0; text-align:center;
+    background:linear-gradient(180deg,var(--gold-bright),var(--gold) 55%,var(--gold-dark));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .sub{ text-align:center; color:#a99a7a; font-size:12.5px; margin-top:-8px; }
+
+  .panel{
+    background:rgba(10,16,12,.72); border:1px solid rgba(240,205,122,.25);
+    border-radius:16px; padding:16px; display:flex; flex-direction:column; gap:12px;
+  }
+  .panel h2{
+    margin:0; font-family:'Be Vietnam Pro',sans-serif; font-weight:800;
+    font-size:15px; color:var(--gold-bright);
+  }
+  .field{ display:flex; flex-direction:column; gap:5px; }
+  .field label{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:#b7a374; }
+  input, select{
+    background:rgba(0,0,0,.38); border:1px solid rgba(240,205,122,.3); color:var(--ivory);
+    border-radius:10px; padding:11px 12px; font-size:15px; font-family:'Inter',sans-serif; width:100%;
+  }
+  input:focus, select:focus{ outline:none; border-color:var(--gold-bright); }
+  input.mono{ font-family:'JetBrains Mono',monospace; }
+
+  .btn{
+    padding:12px 16px; border-radius:10px; border:none; cursor:pointer;
+    font-family:'Be Vietnam Pro',sans-serif; font-weight:800; font-size:14px;
+    color:var(--ivory); box-shadow:0 3px 0 rgba(0,0,0,.4);
+  }
+  .btn:active{ transform:translateY(2px); box-shadow:0 1px 0 rgba(0,0,0,.4); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn-gold{ background:linear-gradient(180deg,var(--gold-bright),var(--gold)); color:var(--ink); }
+  .btn-ghost{ background:rgba(240,205,122,.08); border:1px solid var(--gold); color:var(--gold-bright); box-shadow:none; }
+
+  .row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .quick{ display:flex; gap:6px; flex-wrap:wrap; }
+  .quick button{
+    padding:7px 11px; border-radius:8px; cursor:pointer; font-size:12.5px; font-weight:700;
+    border:1px solid rgba(240,205,122,.3); background:rgba(240,205,122,.06); color:var(--gold-bright);
+    font-family:'JetBrains Mono',monospace;
+  }
+
+  .msg{ font-size:13.5px; min-height:19px; text-align:center; }
+  .msg.ok{ color:#8ee0ac; }
+  .msg.err{ color:#ff9d9d; }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th{
+    text-align:left; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+    color:#b7a374; font-weight:600; padding:5px 6px; border-bottom:1px solid rgba(240,205,122,.2);
+  }
+  td{ padding:7px 6px; border-bottom:1px solid rgba(240,205,122,.09); }
+  tr.click{ cursor:pointer; }
+  tr.click:hover td{ background:rgba(240,205,122,.07); }
+  .num{ font-family:'JetBrains Mono',monospace; text-align:right; color:var(--gold-bright); }
+  .uname{ font-family:'JetBrains Mono',monospace; color:#cfe6d8; }
+  .plus{ color:#8ee0ac; }
+  .minus{ color:#ff9d9d; }
+  .muted{ color:#8a8067; font-size:12px; }
+  .scroll{ max-height:340px; overflow-y:auto; }
+  .empty{ color:#7d735e; font-size:13px; padding:10px 2px; }
+
+  #login{ max-width:380px; margin:14vh auto 0; }
+  .hidden{ display:none !important; }
+
+  @media (max-width:560px){
+    .row{ grid-template-columns:1fr; }
+    td, th{ padding:6px 4px; font-size:12px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>QUẢN LÝ LIÊNG</h1>
+  <div class="sub">cộng / trừ xu cho người chơi</div>
+
+  <!-- ============ ĐĂNG NHẬP ============ -->
+  <div class="panel" id="login">
+    <div class="field">
+      <label for="inpPass">Mật khẩu quản lý</label>
+      <input id="inpPass" type="password" autocomplete="current-password" placeholder="ADMIN_PASSWORD">
+    </div>
+    <button class="btn btn-gold" id="btnLogin">Vào trang quản lý</button>
+    <div class="msg err" id="loginMsg"></div>
+  </div>
+
+  <!-- ============ BẢNG ĐIỀU KHIỂN ============ -->
+  <div id="dash" class="hidden" style="display:flex;flex-direction:column;gap:16px;">
+
+    <div class="panel">
+      <h2>Cộng / trừ xu</h2>
+      <div class="field">
+        <label for="inpUser">Tên đăng nhập của người chơi</label>
+        <input id="inpUser" class="mono" placeholder="vi_du_ten_dang_nhap" autocapitalize="none" autocomplete="off">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="selMode">Kiểu thao tác</label>
+          <select id="selMode">
+            <option value="add">Cộng / trừ xu</option>
+            <option value="set">Đặt lại số dư</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inpAmount" id="lblAmount">Số xu (âm để trừ)</label>
+          <input id="inpAmount" class="mono" type="number" step="1000" placeholder="10000">
+        </div>
+      </div>
+      <div class="quick" id="quickBtns">
+        <button data-amt="10000">+10K</button>
+        <button data-amt="50000">+50K</button>
+        <button data-amt="100000">+100K</button>
+        <button data-amt="500000">+500K</button>
+        <button data-amt="-10000">−10K</button>
+        <button data-amt="-50000">−50K</button>
+      </div>
+      <div class="field">
+        <label for="inpReason">Lý do (ghi vào sổ cái)</label>
+        <input id="inpReason" placeholder="Ví dụ: nạp thẻ, đền bù lỗi, thưởng sự kiện" maxlength="200">
+      </div>
+      <button class="btn btn-gold" id="btnApply">Thực hiện</button>
+      <div class="msg" id="applyMsg"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Người chơi <span class="muted" id="totalCount"></span></h2>
+      <input id="inpSearch" placeholder="Tìm theo tên đăng nhập hoặc tên hiển thị…" autocomplete="off">
+      <div class="muted">Bấm vào một dòng để điền sẵn tên vào ô phía trên.</div>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>Tên đăng nhập</th><th>Tên hiển thị</th><th style="text-align:right">Số dư</th>
+          </tr></thead>
+          <tbody id="tblPlayers"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Sổ cái — 20 giao dịch gần nhất</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>Lúc</th><th>Tài khoản</th><th style="text-align:right">Thay đổi</th>
+            <th style="text-align:right">Còn lại</th><th>Lý do</th>
+          </tr></thead>
+          <tbody id="tblLog"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <button class="btn btn-ghost" id="btnLogout">Thoát trang quản lý</button>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const TOKEN_KEY = 'lieng.admin';
+let token = null;
+
+const fmt = (n) => Number(n ?? 0).toLocaleString('vi-VN');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+  (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function timeText(ts){
+  const d = new Date(ts);
+  const two = (n) => String(n).padStart(2, '0');
+  return `${two(d.getDate())}/${two(d.getMonth()+1)} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+async function api(path, { method = 'GET', body } = {}){
+  const res = await fetch(`/admin/api/${path}`, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok){
+    if(res.status === 401 && token){ logout(); }
+    throw new Error(data.error || `Lỗi ${res.status}`);
+  }
+  return data;
+}
+
+/* ================= ĐĂNG NHẬP ================= */
+async function login(){
+  const password = $('inpPass').value;
+  if(!password){ $('loginMsg').textContent = 'Nhập mật khẩu quản lý.'; return; }
+  $('btnLogin').disabled = true;
+  try{
+    const { token: t } = await api('login', { method:'POST', body:{ password } });
+    token = t;
+    try{ sessionStorage.setItem(TOKEN_KEY, t); }catch{}
+    $('loginMsg').textContent = '';
+    $('inpPass').value = '';
+    showDash();
+  }catch(err){
+    $('loginMsg').textContent = err.message;
+  }finally{
+    $('btnLogin').disabled = false;
+  }
+}
+
+function logout(){
+  token = null;
+  try{ sessionStorage.removeItem(TOKEN_KEY); }catch{}
+  $('dash').classList.add('hidden');
+  $('login').classList.remove('hidden');
+}
+
+function showDash(){
+  $('login').classList.add('hidden');
+  $('dash').classList.remove('hidden');
+  refreshAll();
+}
+
+$('btnLogin').onclick = login;
+$('inpPass').addEventListener('keydown', (e) => { if(e.key === 'Enter') login(); });
+$('btnLogout').onclick = logout;
+
+/* ================= DANH SÁCH & SỔ CÁI ================= */
+async function loadPlayers(){
+  const q = $('inpSearch').value.trim();
+  try{
+    const { players, total } = await api(`players?q=${encodeURIComponent(q)}`);
+    $('totalCount').textContent = `· ${total} tài khoản`;
+    $('tblPlayers').innerHTML = players.length
+      ? players.map((p) => `
+          <tr class="click" data-user="${esc(p.username)}">
+            <td class="uname">${esc(p.username)}</td>
+            <td>${esc(p.displayName)}</td>
+            <td class="num">${fmt(p.balance)}</td>
+          </tr>`).join('')
+      : '<tr><td colspan="3" class="empty">Không tìm thấy tài khoản nào.</td></tr>';
+
+    $('tblPlayers').querySelectorAll('tr[data-user]').forEach((tr) => {
+      tr.onclick = () => {
+        $('inpUser').value = tr.dataset.user;
+        $('inpAmount').focus();
+      };
+    });
+  }catch(err){
+    $('tblPlayers').innerHTML = `<tr><td colspan="3" class="empty">${esc(err.message)}</td></tr>`;
+  }
+}
+
+async function loadLog(){
+  try{
+    const { log } = await api('log');
+    $('tblLog').innerHTML = log.length
+      ? log.map((r) => `
+          <tr>
+            <td class="muted">${timeText(r.at)}</td>
+            <td class="uname">${esc(r.username)}</td>
+            <td class="num ${r.delta >= 0 ? 'plus' : 'minus'}">${r.delta >= 0 ? '+' : '−'}${fmt(Math.abs(r.delta))}</td>
+            <td class="num">${fmt(r.balanceAfter)}</td>
+            <td class="muted">${esc(r.reason) || '—'}</td>
+          </tr>`).join('')
+      : '<tr><td colspan="5" class="empty">Chưa có giao dịch nào.</td></tr>';
+  }catch(err){
+    $('tblLog').innerHTML = `<tr><td colspan="5" class="empty">${esc(err.message)}</td></tr>`;
+  }
+}
+
+function refreshAll(){ loadPlayers(); loadLog(); }
+
+let searchTimer = null;
+$('inpSearch').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadPlayers, 250);
+});
+
+/* ================= CỘNG / TRỪ ================= */
+$('selMode').onchange = () => {
+  const isSet = $('selMode').value === 'set';
+  $('lblAmount').textContent = isSet ? 'Số dư mới' : 'Số xu (âm để trừ)';
+  $('quickBtns').style.display = isSet ? 'none' : 'flex';
+  $('inpAmount').placeholder = isSet ? '100000' : '10000';
+};
+
+$('quickBtns').querySelectorAll('button[data-amt]').forEach((b) => {
+  b.onclick = () => { $('inpAmount').value = b.dataset.amt; };
+});
+
+async function apply(){
+  const username = $('inpUser').value.trim();
+  const amount = Number($('inpAmount').value);
+  const mode = $('selMode').value;
+  const reason = $('inpReason').value.trim();
+  const msg = $('applyMsg');
+
+  if(!username){ msg.className = 'msg err'; msg.textContent = 'Chưa điền tên đăng nhập.'; return; }
+  if(!Number.isFinite(amount)){ msg.className = 'msg err'; msg.textContent = 'Chưa điền số xu.'; return; }
+
+  $('btnApply').disabled = true;
+  msg.className = 'msg';
+  msg.textContent = 'Đang xử lý…';
+  try{
+    const r = await api('adjust', { method:'POST', body:{ username, mode, amount, reason } });
+    msg.className = 'msg ok';
+    const dau = r.delta >= 0 ? 'Đã cộng' : 'Đã trừ';
+    msg.textContent =
+      `${dau} ${fmt(Math.abs(r.delta))} xu cho ${r.account.username}. `
+      + `Số dư: ${fmt(r.balanceBefore)} → ${fmt(r.balanceAfter)}.`
+      + (r.seated ? ` (đang ngồi ${r.seated}, chip trên bàn đã cập nhật)` : '');
+    $('inpAmount').value = '';
+    $('inpReason').value = '';
+    refreshAll();
+  }catch(err){
+    msg.className = 'msg err';
+    msg.textContent = err.message;
+  }finally{
+    $('btnApply').disabled = false;
+  }
+}
+$('btnApply').onclick = apply;
+for(const id of ['inpUser','inpAmount','inpReason']){
+  $(id).addEventListener('keydown', (e) => { if(e.key === 'Enter') apply(); });
+}
+
+/* ================= KHỞI ĐỘNG ================= */
+(function boot(){
+  $('selMode').onchange();
+  let saved = null;
+  try{ saved = sessionStorage.getItem(TOKEN_KEY); }catch{}
+  if(saved){
+    token = saved;
+    api('log').then(showDash).catch(logout);
+  }
+})();
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+node_modules/
+npm-debug.log*
+.DS_Store
+*.log
+
+# Biến môi trường — mật khẩu quản lý nằm ở đây, tuyệt đối không đẩy lên git
+.env
+.env.*
+
+# Cơ sở dữ liệu người chơi (kèm file phụ của chế độ WAL).
+# Trong này có tài khoản và mã băm mật khẩu — không bao giờ đưa lên git.
+lieng.db
+lieng.db-wal
+lieng.db-shm
+*.sqlite
+*.sqlite3

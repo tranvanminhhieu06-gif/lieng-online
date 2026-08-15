@@ -1,0 +1,52 @@
+# Cấu hình triển khai cho Render (Blueprint).
+#
+# Có file này thì trên Render chỉ cần chọn "New > Blueprint", trỏ vào repo,
+# Render tự đọc và dựng đúng dịch vụ — khỏi điền tay từng ô.
+#
+# Sau khi dựng xong PHẢI vào Environment điền tay hai biến bí mật ở dưới
+# (những biến đánh dấu `sync: false`). Mật khẩu không bao giờ nằm trong file này.
+
+services:
+  - type: web
+    name: lieng-online
+    runtime: node
+    # Singapore là vùng gần Việt Nam nhất — độ trễ thấp nhất cho game thời gian thực.
+    region: singapore
+
+    # Gói starter: không ngủ đông, và là gói tối thiểu để gắn được ổ đĩa lưu trữ.
+    # Gói free sẽ ngủ sau 15 phút không ai vào, và KHÔNG gắn ổ đĩa được —
+    # nghĩa là toàn bộ tài khoản người chơi bay sạch mỗi lần khởi động lại.
+    plan: starter
+
+    buildCommand: npm ci
+    startCommand: npm start
+
+    # Render gọi đường dẫn này để biết dịch vụ đã sống chưa
+    healthCheckPath: /health
+
+    # Ổ đĩa lưu trữ — chỗ duy nhất trên Render không bị xoá khi deploy lại.
+    disk:
+      name: lieng-data
+      mountPath: /data
+      sizeGB: 1
+
+    envVars:
+      # node:sqlite cần Node 22.5 trở lên
+      - key: NODE_VERSION
+        value: "22"
+
+      # Đặt cơ sở dữ liệu vào ổ đĩa lưu trữ, KHÔNG để trong thư mục mã nguồn
+      - key: DB_FILE
+        value: /data/lieng.db
+
+      # Múi giờ để tính ngày điểm danh
+      - key: GAME_TZ
+        value: Asia/Bangkok
+
+      - key: NODE_ENV
+        value: production
+
+      # Mật khẩu trang quản lý — điền tay trong bảng điều khiển Render.
+      # Bỏ trống thì /admin tự trả về 404.
+      - key: ADMIN_PASSWORD
+        sync: false
