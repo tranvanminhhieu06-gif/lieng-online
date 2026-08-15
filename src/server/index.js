@@ -31,9 +31,20 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 
 // DB_SCHEMA cho phép nhiều môi trường dùng chung một Postgres (test dùng nó
 // để mỗi file test có schema riêng). Không đặt thì dùng schema mặc định.
-const store = await new Store(process.env.DATABASE_URL, {
-  schema: process.env.DB_SCHEMA,
-}).init();
+//
+// Nếu không kết nối được thì in một thông báo ngắn gọn rồi thoát, thay vì để
+// driver đổ ra một object lỗi bốn chục dòng toàn `undefined`.
+let store;
+try {
+  store = await new Store(process.env.DATABASE_URL, {
+    schema: process.env.DB_SCHEMA,
+  }).init();
+} catch (err) {
+  console.error('\n================ KHÔNG KHỞI ĐỘNG ĐƯỢC ================');
+  console.error(err.message);
+  console.error('======================================================\n');
+  process.exit(1);
+}
 const rooms = new RoomManager();
 setInterval(() => rooms.sweep(), 10 * 60 * 1000).unref?.();
 

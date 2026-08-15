@@ -89,8 +89,36 @@ export class Store {
     });
   }
 
-  /** Tạo bảng nếu chưa có. Phải gọi một lần lúc khởi động. */
-  async init() {
+  /**
+   * Tạo bảng nếu chưa có. Phải gọi một lần lúc khởi động.
+   *
+   * Có thử lại vài lần: Neon cho compute ngủ sau ít phút không dùng, lần kết
+   * nối đầu tiên là lần đánh thức nó dậy nên hay chậm hoặc lỗi. Nếu để lỗi
+   * ngay lần đầu thì cả dịch vụ chết, Render chỉ báo "no open ports detected"
+   * — không nói gì về nguyên nhân thật.
+   */
+  async init({ retries = 5, delayMs = 2000 } = {}) {
+    let loiCuoi;
+    for (let lan = 1; lan <= retries; lan++) {
+      try {
+        await this.pool.query('SELECT 1');
+        await this.createTables();
+        if (lan > 1) console.log(`[CSDL] Kết nối được ở lần thử thứ ${lan}.`);
+        return this;
+      } catch (err) {
+        loiCuoi = err;
+        console.error(`[CSDL] Lần thử ${lan}/${retries} thất bại: ${moTaLoi(err)}`);
+        if (lan < retries) await new Promise((r) => setTimeout(r, delayMs * lan));
+      }
+    }
+    throw new Error(
+      `Không kết nối được cơ sở dữ liệu sau ${retries} lần thử.\n` +
+      `Lý do: ${moTaLoi(loiCuoi)}\n` +
+      `Gợi ý: ${goiYSua(loiCuoi)}`,
+    );
+  }
+
+  async createTables() {
     if (this.schema !== 'public') {
       await this.pool.query(`CREATE SCHEMA IF NOT EXISTS ${this.schema}`);
     }
@@ -513,6 +541,48 @@ export class Store {
     );
     return rows.map((r) => ({ display_name: r.display_name, balance: num(r.balance) }));
   }
+}
+
+/** Rút một dòng dễ đọc từ object lỗi đồ sộ của driver Postgres. */
+export function moTaLoi(err) {
+  if (!err) return 'không rõ';
+  const ma = err.code ? ` [${err.code}]` : '';
+  return `${err.message ?? err}${ma}`;
+}
+
+/** Đoán nguyên nhân từ mã lỗi, để khỏi phải mò. */
+export function goiYSua(err) {
+  const code = err?.code;
+  const msg = String(err?.message ?? '');
+
+  if (code === 'ENOTFOUND' || msg.includes('getaddrinfo')) {
+    return 'Sai tên máy chủ trong DATABASE_URL. Copy lại chuỗi kết nối từ Neon.';
+  }
+  if (code === 'ECONNREFUSED') {
+    return 'Không có Postgres nào lắng nghe ở địa chỉ/cổng đó.';
+  }
+  if (code === 'ETIMEDOUT' || msg.includes('timeout')) {
+    return 'Hết giờ chờ kết nối. Kiểm tra tường lửa, hoặc Neon đang ngủ và cần thêm thời gian.';
+  }
+  if (code === '28P01') {
+    return 'Sai mật khẩu. Vào Neon lấy lại chuỗi kết nối (Reset password nếu cần).';
+  }
+  if (code === '3D000') {
+    return 'Tên cơ sở dữ liệu trong chuỗi kết nối không tồn tại.';
+  }
+  if (code === '28000' || msg.includes('no pg_hba.conf')) {
+    return 'Bị từ chối xác thực. Chuỗi kết nối Neon phải có ?sslmode=require ở cuối.';
+  }
+  if (msg.includes('SSL') || msg.includes('self signed') || msg.includes('certificate')) {
+    return 'Vấn đề TLS. Chuỗi kết nối Neon phải có ?sslmode=require ở cuối.';
+  }
+  if (msg.includes('password must be a string')) {
+    return 'DATABASE_URL thiếu mật khẩu, hoặc mật khẩu có ký tự đặc biệt chưa được mã hoá URL.';
+  }
+  if (code === '42501' || msg.includes('permission denied')) {
+    return 'Tài khoản không có quyền tạo bảng trong cơ sở dữ liệu này.';
+  }
+  return 'Kiểm tra lại biến DATABASE_URL trong phần Environment của Render.';
 }
 
 /** Postgres trả BIGINT dưới dạng chuỗi để không mất độ chính xác. */
