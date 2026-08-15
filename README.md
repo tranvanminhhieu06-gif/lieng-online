@@ -37,7 +37,7 @@ $env:TEST_DATABASE_URL='postgresql://...'
 npm test
 ```
 
-123 test, gồm cả test đầu-cuối dựng server thật và nối nhiều WebSocket thật.
+140 test, gồm cả test đầu-cuối dựng server thật và nối nhiều WebSocket thật.
 
 Mỗi file test tự tạo một **schema riêng** rồi xoá sạch khi xong (xem
 `test/pg-helper.js`), nên chĩa vào cùng cơ sở dữ liệu đang dùng thật cũng không
@@ -79,9 +79,31 @@ Bàn nào vượt quá số dư thì hiện mờ, khoá nút, và ghi rõ **còn
 Server kiểm tra lại lần nữa lúc ngồi vào bàn — sửa giao diện bằng DevTools không lách được.
 
 **Chip trên bàn công khai chính là số dư tài khoản.** Không có mua chip/rút chip:
-cược bao nhiêu là trừ thẳng vào ví, thắng là cộng thẳng vào ví. Sau mỗi ván server
-chép chip trên bàn về CSDL. Ai tụt xuống dưới mức tối thiểu của bàn thì được mời ra
-sảnh, xu còn lại giữ nguyên.
+cược bao nhiêu là trừ thẳng vào ví, thắng là cộng thẳng vào ví. Ai tụt xuống dưới
+mức tối thiểu của bàn thì được mời ra sảnh, xu còn lại giữ nguyên.
+
+### Tiền thắng về ví thế nào
+
+Mỗi người ngồi bàn mang theo một mốc `walletBase` — số dư mà chip trên bàn được lấy
+ra từ đó. Hết ván, server **cộng đúng phần chênh lệch** `chips - walletBase` vào tài
+khoản, rồi lấy số dư mới về làm chip cho ván sau. Chip và ví vì thế luôn gặp lại nhau
+ở giữa hai ván.
+
+Điểm mấu chốt là **cộng chênh lệch chứ không ghi đè** số dư bằng chip. Nếu ghi đè thì
+mọi khoản xu vào tài khoản từ ngoài ván bài trong lúc đang chơi — điểm danh ở tab thứ
+hai, admin cộng tay — đều bị xoá sạch khi ván kết thúc. Có test dựng đúng tình huống
+đó (`test/wallet.test.js`).
+
+Hai chỗ đi kèm, thiếu là sai tiền:
+
+- **Trang quản lý cộng xu cho người đang ngồi bàn** phải dời `walletBase` theo đúng
+  khoản vừa cộng. Không thì khoản đó bị tính hai lần: một lần vào CSDL, một lần nữa
+  lúc chốt sổ coi như "thắng được trên bàn".
+- **Đọc lại số dư để gửi cho client** phải chờ lệnh ghi chạy xong (`flushWrites()`).
+  Không thì người chơi rời bàn sẽ thấy số dư của *trước* ván và tưởng tiền thắng chưa
+  được cộng.
+
+Ván mới cũng chờ ghi xong mới chia, để không bao giờ chơi bằng số chip chưa khớp ví.
 
 Một tài khoản chỉ ngồi được **một bàn tại một thời điểm** — nếu không thì cùng một
 số dư sẽ bị đem đi cược ở hai nơi. Mở bàn mới ở tab khác thì ghế cũ tự nhả ra, trừ
@@ -120,6 +142,8 @@ test/
   pots.test.js      hũ phụ, gồm test bảo toàn tiền với 100 tình huống ngẫu nhiên
   game.test.js      luồng ván, chống đi sai lượt, chip không âm
   flip.test.js      lật bài, chặn đặt cược khi chưa mở, úp mù
+  wallet.test.js    cộng tiền thắng vào ví, không ghi đè khoản cộng từ ngoài
+  bonus.test.js     thứ tự chất, úp bài tự do, thưởng nhân Sáp / Liêng đồng chất
   pg-helper.js      tiện ích: mỗi file test một schema Postgres riêng
   account.test.js   tài khoản, mật khẩu, điểm danh theo giờ Việt Nam
   admin.test.js     cộng/trừ xu, sổ cái, bảo mật trang quản lý
@@ -141,9 +165,10 @@ test/
 | Hết giờ | Không có, treo vô hạn | Đồng hồ 25s, hết giờ tự úp/giữ |
 | Rớt mạng | Mất sạch | Nối lại bằng token, giữ nguyên ghế và tiền |
 | Tất tay | Ăn trọn hũ dù bỏ vào ít | Hũ phụ đúng luật |
-| Hoà điểm | Chia đôi tiền | So lá cao nhất rồi so chất |
+| Hoà điểm | Chia đôi tiền | So lá cao nhất, rồi so chất Rô > Cơ > Tép > Bích |
 | Số người | Cố định 4 ghế | 2–6 ghế, xếp động quanh bàn |
 | Bot | Chạy ở client | Chạy ở server, lấp ghế trống |
+| Bài đẹp | Không có thưởng | Sáp ăn đôi, Liêng đồng chất ăn gấp rưỡi |
 
 ---
 
@@ -198,7 +223,8 @@ JSON thật sự đi qua đường mạng không chứa lá bài nào khi chưa 
 
 - **Phải mở đủ 3 lá mới được Tố / Theo.** Chưa mở thì hai nút đó khoá lại, kèm dòng
   chữ *"mở nốt 2 lá rồi mới đặt cược được"*.
-- **Úp mù thì lúc nào cũng được.** Nút đổi thành "Úp mù" khi chưa xem bài, và diễn
+- **Úp bài lúc nào cũng được**, kể cả khi chưa ai tố và không có gì phải theo — xem
+  bài xấu ngay vòng đầu là bỏ được luôn. Chưa xem bài mà úp thì gọi là "Úp mù", diễn
   biến ghi *"úp bài mù, không thèm xem"*.
 - **Hết giờ suy nghĩ** thì server lật hết bài ra cho bạn thấy vừa bỏ lỡ cái gì, rồi
   mới tự úp/giữ như trước.
@@ -210,6 +236,30 @@ JSON thật sự đi qua đường mạng không chứa lá bài nào khi chưa 
 
 Bot tự "nhìn" bài ngay khi chia, vì bài của bot vốn không bao giờ gửi xuống client
 trước lúc ngửa bài nên không có gì để giấu.
+
+---
+
+## Thưởng bài đẹp
+
+| Bài thắng | Hệ số |
+|---|---|
+| **Sáp** (3 lá cùng số) | ăn **gấp đôi** |
+| **Liêng đồng chất** (3 lá liên tiếp cùng chất) | ăn **gấp rưỡi** |
+
+Phần thưởng **do người thua trả thêm**, không phải hệ thống bù. Mỗi người thua trả
+thêm phần tương ứng với số tiền chính họ đã bỏ vào hũ: thua Sáp thì trả thêm đúng
+bằng số đã cược, thua Liêng đồng chất thì trả thêm một nửa. Không ai bị trừ quá số
+chip còn lại của mình.
+
+Làm vậy để **tổng xu toàn hệ thống không phình lên**. Nếu để game tự bù phần nhân
+thêm thì mỗi ván có Sáp là một lần xu được tạo ra từ hư không, chơi lâu sẽ lạm phát.
+Có test kiểm tra tổng chip cả bàn không đổi sau mỗi ván có thưởng.
+
+Hai trường hợp **không** tính thưởng:
+
+- **Mọi người úp bài hết.** Bài không lộ ra nên không ai biết người thắng cầm gì —
+  trả thưởng lúc đó vừa vô lý vừa dễ bị lợi dụng.
+- **Hoà**, nhiều người cùng thắng một hũ.
 
 ---
 

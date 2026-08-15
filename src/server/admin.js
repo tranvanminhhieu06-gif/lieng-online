@@ -154,7 +154,16 @@ export async function applyAdjustment({ username, mode, amount, reason }, { stor
   if (seat) {
     const player = getPlayer(seat.room.game, seat.playerId);
     if (player) {
-      player.chips = Math.max(0, player.chips + res.delta);
+      const truoc = player.chips;
+      player.chips = Math.max(0, truoc + res.delta);
+      // Dời luôn mốc tính lãi/lỗ của ván theo đúng khoản vừa cộng.
+      //
+      // Thiếu dòng này là cộng hai lần: khoản admin cộng đã vào CSDL ở trên,
+      // rồi lúc chốt sổ cuối ván nó lại bị tính thêm một lần nữa vào phần
+      // "thắng được trên bàn". Cộng 100.000 sẽ thành 200.000.
+      if (seat.room.walletMode) {
+        player.walletBase = (player.walletBase ?? truoc) + (player.chips - truoc);
+      }
       seat.room.broadcastState();
       seat.room.pushSystem(
         res.delta > 0

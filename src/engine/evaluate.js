@@ -84,6 +84,7 @@ export function evaluateHand(cards, options = {}) {
   }
 
   const ranks = cards.map((c) => c.rank).sort((a, b) => a - b);
+  const dongChat = cards[0].suit === cards[1].suit && cards[1].suit === cards[2].suit;
 
   // Sức mạnh từng lá, xếp giảm dần — dùng làm tiêu chí phụ cuối cùng.
   const kickers = cards
@@ -98,6 +99,8 @@ export function evaluateHand(cards, options = {}) {
       tiebreak: [highRank(ranks[0])],
       label: `Sáp ${RANK_LABELS[ranks[0]]}`,
       score: null,
+      sameSuit: false, // 3 lá cùng số thì bắt buộc khác chất
+      multiplier: 2,
     };
   }
 
@@ -114,8 +117,11 @@ export function evaluateHand(cards, options = {}) {
       category: CATEGORY.LIENG,
       categoryName: 'lieng',
       tiebreak: [liengIndex, ...kickers],
-      label: `Liêng ${seqLabel}`,
+      label: dongChat ? `Liêng ${seqLabel} đồng chất` : `Liêng ${seqLabel}`,
       score: null,
+      sameSuit: dongChat,
+      // Liêng đồng chất ăn gấp rưỡi
+      multiplier: dongChat ? 1.5 : 1,
     };
   }
 
@@ -127,6 +133,8 @@ export function evaluateHand(cards, options = {}) {
       tiebreak: [...kickers],
       label: 'Ảnh',
       score: null,
+      sameSuit: dongChat,
+      multiplier: 1,
     };
   }
 
@@ -138,6 +146,8 @@ export function evaluateHand(cards, options = {}) {
     tiebreak: [score, ...kickers],
     label: `${score} điểm`,
     score,
+    sameSuit: dongChat,
+    multiplier: 1,
   };
 }
 

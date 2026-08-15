@@ -6,21 +6,21 @@
  */
 
 // Thứ tự chất từ THẤP đến CAO (dùng để so bài khi hoà điểm).
-// Bích < Chuồn < Rô < Cơ — theo cách chơi phổ biến ở Việt Nam.
-export const SUITS = ['♠', '♣', '♦', '♥'];
+// Bích < Tép < Cơ < Rô
+export const SUITS = ['♠', '♣', '♥', '♦'];
 
 export const SUIT_NAMES = {
   '♠': 'Bích',
-  '♣': 'Chuồn',
-  '♦': 'Rô',
+  '♣': 'Tép',
   '♥': 'Cơ',
+  '♦': 'Rô',
 };
 
 export const SUIT_STRENGTH = {
   '♠': 0,
   '♣': 1,
-  '♦': 2,
-  '♥': 3,
+  '♥': 2,
+  '♦': 3,
 };
 
 export const SUIT_COLOR = {

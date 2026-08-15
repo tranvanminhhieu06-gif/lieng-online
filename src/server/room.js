@@ -134,7 +134,11 @@ export class Room {
     addPlayer(this.game, { id, name: sanitizeName(name), isBot: false, chips });
     this.seats.set(id, { ws: null, token, online: false, lastSeen: Date.now() });
     this.tokens.set(token, id);
-    if (account) this.accountOf.set(id, account.id);
+    if (account) {
+      this.accountOf.set(id, account.id);
+      // Mốc để tính lãi/lỗ của ván: chip trên bàn được lấy ra từ số dư này
+      getPlayer(this.game, id).walletBase = chips;
+    }
     if (!this.hostId) this.hostId = id;
     return { playerId: id, token };
   }
@@ -207,7 +211,7 @@ export class Room {
   removeSeat(playerId, reason = '', { notify = true } = {}) {
     const p = getPlayer(this.game, playerId);
     // Chốt sổ trước khi rời ghế, phòng khi rời giữa chừng.
-    this.syncOneWallet(playerId);
+    this.creditWallet(playerId);
     this.accountOf.delete(playerId);
     const conn = this.seats.get(playerId);
     if (conn) {
@@ -290,8 +294,9 @@ export class Room {
     if (this.nextRoundTimer) return;
     if (this.game.phase === PHASE.BETTING || this.game.phase === PHASE.SHOWDOWN) return;
     if (!this.canStart()) return;
-    this.nextRoundTimer = setTimeout(() => {
+    this.nextRoundTimer = setTimeout(async () => {
       this.nextRoundTimer = null;
+      await this.flushWrites();
       if (this.closed) return;
       if (this.canStart()) this.startRound();
     }, delayMs);
@@ -371,8 +376,11 @@ export class Room {
       this.settleWallets();
       this.broadcastState();
       if (this.game.phase === PHASE.ROUND_OVER && this.config.autoStart) {
-        this.nextRoundTimer = setTimeout(() => {
+        this.nextRoundTimer = setTimeout(async () => {
           this.nextRoundTimer = null;
+          // Chờ cộng tiền xong rồi mới chia ván mới, nếu không thì ván sau
+          // sẽ chơi bằng số chip chưa khớp với ví.
+          await this.flushWrites();
           if (this.closed) return;
           if (this.canStart()) this.startRound();
         }, this.config.nextRoundDelaySeconds * 1000);
@@ -402,25 +410,50 @@ export class Room {
     return this.writeChain;
   }
 
-  /** Chờ mọi thao tác ghi đang xếp hàng hoàn tất. Dùng trong test. */
-  flushWrites() {
-    return this.writeChain ?? Promise.resolve();
+  /**
+   * Chờ mọi thao tác ghi xếp hàng xong. Lặp lại vì một lệnh đang chạy có thể
+   * nối thêm lệnh mới vào cuối chuỗi (đuổi người hết xu chẳng hạn).
+   */
+  async flushWrites() {
+    let truoc;
+    do { truoc = this.writeChain; await truoc; } while (this.writeChain !== truoc);
   }
 
-  /** Chép chip trên bàn của một người về số dư tài khoản. */
-  syncOneWallet(playerId) {
+  /**
+   * Đưa phần được/mất trên bàn về tài khoản.
+   *
+   * CỘNG PHẦN CHÊNH LỆCH, KHÔNG GHI ĐÈ. Trước đây hàm này ghi thẳng
+   * `balance = chips`, nghĩa là mọi khoản xu cộng vào tài khoản từ nơi khác
+   * trong lúc ván đang chạy (điểm danh ở tab thứ hai, admin cộng tay) đều bị
+   * xoá sạch khi ván kết thúc.
+   *
+   * `walletBase` là số dư mà chip trên bàn được lấy ra từ đó. Phần được/mất
+   * của ván chính là `chips - walletBase`, và chỉ phần đó mới đem cộng vào ví.
+   * Cộng xong thì lấy số dư mới về làm chip cho ván sau, nên chip và ví luôn
+   * gặp lại nhau ở giữa hai ván.
+   */
+  creditWallet(playerId) {
     if (!this.walletMode) return;
     const accountId = this.accountOf.get(playerId);
     if (!accountId) return;
     const p = getPlayer(this.game, playerId);
     if (!p) return;
-    const chips = p.chips;
-    this.queueWrite(() => this.store.setBalance(accountId, chips));
+
+    const base = p.walletBase ?? p.chips;
+    const laiLo = p.chips - base;
+
+    this.queueWrite(async () => {
+      // delta = 0 vẫn gọi: câu lệnh trả về số dư hiện tại, nhờ đó chip trên bàn
+      // đón được cả những khoản cộng từ nơi khác.
+      const soDuMoi = await this.store.addBalance(accountId, laiLo);
+      p.chips = soDuMoi;
+      p.walletBase = soDuMoi;
+    });
   }
 
   /**
    * Chốt sổ sau mỗi ván ở bàn công khai:
-   *  - chép chip trên bàn về ví
+   *  - cộng phần được/mất của từng người vào ví
    *  - bơm lại vốn cho bot (bot không phải tài khoản thật)
    *  - mời ra ngoài những ai không còn đủ số dư tối thiểu của bàn
    *  - bàn công khai không có "tan sòng", cứ chờ người mới vào
@@ -428,27 +461,35 @@ export class Room {
   settleWallets() {
     if (!this.walletMode) return;
 
-    for (const playerId of this.accountOf.keys()) this.syncOneWallet(playerId);
+    for (const playerId of this.accountOf.keys()) this.creditWallet(playerId);
 
-    for (const p of [...this.game.players]) {
+    for (const p of this.game.players) {
       if (p.isBot) {
         p.chips = this.botStack();
         p.eliminated = false;
-        continue;
-      }
-      if (p.chips < this.tier.minBalance) {
-        this.removeSeat(
-          p.id,
-          `Bạn còn ${fmt(p.chips)} xu, không đủ mức tối thiểu ${fmt(this.tier.minBalance)} xu của ${this.tier.label}.`,
-        );
       }
     }
 
-    // Người còn ngồi lại vẫn chơi tiếp — bàn công khai không kết thúc.
-    if (this.game.phase === PHASE.GAME_OVER) {
-      this.game.phase = PHASE.WAITING;
-      for (const p of this.game.players) p.eliminated = false;
-    }
+    // Việc đuổi người hết xu phải chờ ghi CSDL xong, vì `chips` chỉ khớp với ví
+    // sau khi các lệnh cộng ở trên chạy hết.
+    this.queueWrite(() => {
+      if (this.closed) return;
+      for (const p of [...this.game.players]) {
+        if (p.isBot) continue;
+        if (p.chips < this.tier.minBalance) {
+          this.removeSeat(
+            p.id,
+            `Bạn còn ${fmt(p.chips)} xu, không đủ mức tối thiểu ${fmt(this.tier.minBalance)} xu của ${this.tier.label}.`,
+          );
+        }
+      }
+      // Người còn ngồi lại vẫn chơi tiếp — bàn công khai không kết thúc.
+      if (this.game.phase === PHASE.GAME_OVER) {
+        this.game.phase = PHASE.WAITING;
+        for (const p of this.game.players) p.eliminated = false;
+      }
+      this.broadcastState();
+    });
   }
 
   /** Bắt đầu lại từ đầu: mọi người về vốn ban đầu. */

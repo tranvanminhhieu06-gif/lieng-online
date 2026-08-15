@@ -171,7 +171,7 @@
   }
 
   /* ============ BÀN ============ */
-  #game{ display:none; min-height:100vh; flex-direction:column; align-items:center; padding:10px 10px 200px; gap:10px; }
+  #game{ display:none; min-height:100vh; flex-direction:column; align-items:center; padding:10px 10px 158px; gap:8px; }
   #game.show{ display:flex; }
 
   .topbar{
@@ -332,26 +332,40 @@
     z-index:20; pointer-events:none;
   }
   .controls{
-    width:min(600px,98vw); background:rgba(10,16,12,.82); border:1px solid rgba(240,205,122,.25);
-    border-radius:18px; padding:11px 13px; display:flex; flex-direction:column; gap:9px;
+    width:min(560px,98vw); background:rgba(10,16,12,.86); border:1px solid rgba(240,205,122,.25);
+    border-radius:15px; padding:7px 9px 8px; display:flex; flex-direction:column; gap:5px;
     backdrop-filter:blur(8px); pointer-events:auto;
   }
-  .call-info{ text-align:center; font-size:12.5px; color:#c9b98d; min-height:17px; }
+  .call-info{ text-align:center; font-size:12px; color:#c9b98d; min-height:15px; line-height:1.3; }
   .call-info .count{ color:var(--gold-bright); font-family:'JetBrains Mono',monospace; font-weight:700; }
-  .stepper{ display:flex; align-items:center; justify-content:center; gap:7px; }
+  .stepper{ display:flex; align-items:center; justify-content:center; gap:5px; }
   .stepper button{
-    width:30px; height:30px; border-radius:50%; border:1px solid var(--gold);
-    background:rgba(240,205,122,.08); color:var(--gold-bright); font-size:16px; cursor:pointer;
+    width:26px; height:26px; border-radius:50%; border:1px solid var(--gold);
+    background:rgba(240,205,122,.08); color:var(--gold-bright); font-size:15px; cursor:pointer;
+    padding:0; line-height:1;
   }
   .stepper .raise-amt{
-    font-family:'JetBrains Mono',monospace; font-weight:700; font-size:16px;
-    min-width:78px; text-align:center; color:var(--gold-bright);
+    font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15px;
+    min-width:62px; text-align:center; color:var(--gold-bright);
   }
-  .stepper .mini{ width:auto; border-radius:8px; padding:0 9px; font-size:11px; height:30px; }
-  .action-buttons{ display:flex; gap:7px; }
-  .action-buttons .btn{ flex:1; padding:12px 4px; }
-  .host-row{ display:flex; gap:7px; }
-  .host-row .btn{ flex:1; padding:9px 4px; font-size:12.5px; }
+  .stepper .mini{ width:auto; border-radius:7px; padding:0 8px; font-size:10.5px; height:26px; }
+
+  /* Nút tố nhanh — chọn mức cược trong một nhát, khỏi bấm +/- nhiều lần */
+  .quick-bets{ display:flex; gap:4px; justify-content:center; flex-wrap:wrap; }
+  .quick-bets button{
+    flex:1 1 0; min-width:44px; padding:5px 2px; border-radius:7px; cursor:pointer;
+    font-family:'JetBrains Mono',monospace; font-weight:700; font-size:11.5px;
+    border:1px solid rgba(240,205,122,.3); background:rgba(240,205,122,.07); color:var(--gold-bright);
+  }
+  .quick-bets button:hover:not(:disabled){ background:rgba(240,205,122,.18); }
+  .quick-bets button:disabled{ opacity:.25; cursor:not-allowed; }
+  .quick-bets button.on{ background:var(--gold); color:var(--ink); border-color:var(--gold-bright); }
+
+  .action-buttons{ display:flex; gap:5px; }
+  .action-buttons .btn{ flex:1; padding:9px 4px; font-size:13px; border-radius:9px; box-shadow:0 2px 0 rgba(0,0,0,.4); }
+  .host-row{ display:flex; gap:5px; }
+  .host-row .btn{ flex:1; padding:6px 4px; font-size:11.5px; border-radius:8px; }
+  #btnFlipAll{ padding:8px; font-size:13px; border-radius:9px; }
 
   /* ============ PANEL PHỤ ============ */
   .side{
@@ -387,8 +401,8 @@
   /* Diễn biến rút gọn nằm trong thanh điều khiển — luôn nhìn thấy,
      không bao giờ bị thanh điều khiển che như bản trước. */
   .log-mini{
-    max-height:38px; overflow:hidden; font-size:12px; line-height:1.6; color:#a89c80;
-    border-bottom:1px solid rgba(240,205,122,.14); padding-bottom:6px;
+    max-height:19px; overflow:hidden; font-size:11.5px; line-height:1.55; color:#a89c80;
+    border-bottom:1px solid rgba(240,205,122,.14); padding-bottom:4px;
     display:flex; flex-direction:column; justify-content:flex-end;
   }
   .log-mini .log-line{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -613,7 +627,13 @@
     <li><b>Điểm</b> — tổng 3 lá lấy hàng đơn vị (2-9 tính số, 10/J/Q/K = 0, A = 1)</li>
   </ol>
   <h4 style="margin-top:10px;">Hoà điểm</h4>
-  <div>So lá cao nhất; bằng nhau thì so chất <b>Cơ &gt; Rô &gt; Chuồn &gt; Bích</b>.</div>
+  <div>So lá cao nhất; bằng nhau thì so chất <b>Rô &gt; Cơ &gt; Tép &gt; Bích</b>.</div>
+  <h4 style="margin-top:10px;">Thưởng bài đẹp</h4>
+  <div>
+    Thắng bằng <b>Sáp</b> ăn <b>gấp đôi</b>, thắng bằng <b>Liêng đồng chất</b> ăn
+    <b>gấp rưỡi</b>. Phần thưởng do người thua trả thêm, tính theo số tiền chính họ
+    đã bỏ vào hũ. Chỉ tính khi có ngửa bài — mọi người úp hết thì không.
+  </div>
   <h4 style="margin-top:10px;">Tất tay</h4>
   <div>Người tất tay ít tiền chỉ ăn được phần hũ tương ứng số tiền mình bỏ vào (hũ phụ).</div>
 </div>
@@ -649,7 +669,8 @@
       <button id="raisePlus">+</button>
       <button class="mini" id="raiseAllIn">Tất tay</button>
     </div>
-    <button class="btn btn-ghost" id="btnFlipAll" style="display:none;padding:10px;">Mở hết 3 lá</button>
+    <button class="btn btn-ghost" id="btnFlipAll" style="display:none;">Mở hết 3 lá</button>
+    <div class="quick-bets" id="quickBets" style="display:none;"></div>
     <div class="action-buttons">
       <button class="btn btn-red" id="btnTo" disabled>Tố</button>
       <button class="btn btn-green" id="btnTheo" disabled>Theo</button>
@@ -892,7 +913,23 @@ function showScreen(name){
   $('game').classList.toggle('show', name === 'game');
 }
 
-const fmtXu = (n) => Number(n ?? 0).toLocaleString('vi-VN');
+/**
+ * Rút gọn số tiền cho dễ đọc: 1.000 = 1k, 1.000.000 = 1B, 1.000.000.000 = 1T.
+ * Giữ tối đa một chữ số thập phân, bỏ phần .0 thừa.
+ */
+function fmtXu(n){
+  const so = Number(n ?? 0);
+  const dau = so < 0 ? '-' : '';
+  const v = Math.abs(so);
+  const gon = (x) => String(Math.round(x * 10) / 10);
+  if(v >= 1e9) return dau + gon(v / 1e9) + 'T';
+  if(v >= 1e6) return dau + gon(v / 1e6) + 'B';
+  if(v >= 1e3) return dau + gon(v / 1e3) + 'k';
+  return dau + String(Math.round(v));
+}
+
+/** Số đầy đủ, dùng cho tooltip khi cần biết chính xác. */
+const fmtDayDu = (n) => Number(n ?? 0).toLocaleString('vi-VN');
 
 function renderWallet(bump = false){
   if(!ui.account) return;
@@ -968,7 +1005,7 @@ function nameOf(id){
 function applyEvent(e){
   switch(e.type){
     case 'round-start':
-      logLine(`— Ván ${e.roundNum}: mỗi người đặt tiền sàn ${e.ante}. —`);
+      logLine(`— Ván ${e.roundNum}: tiền sàn ${fmtXu(e.ante)} —`);
       break;
     case 'deal':
       sfx.deal();
@@ -986,10 +1023,10 @@ function applyEvent(e){
       const n = nameOf(e.playerId);
       if(e.action === 'fold'){ sfx.fold(); logLine(e.blind ? `${n} úp bài mù, không thèm xem.` : `${n} úp bài.`); }
       else if(e.action === 'check'){ logLine(`${n} giữ bài.`); }
-      else if(e.action === 'call'){ sfx.chip(); logLine(`${n} theo ${e.amount}.`); }
-      else if(e.action === 'allin-call'){ sfx.chip(); logLine(`${n} theo ${e.amount} — tất tay!`); }
-      else if(e.action === 'raise'){ sfx.chip(); logLine(`${n} tố lên ${e.total}!`); }
-      else if(e.action === 'allin-raise'){ sfx.chip(); logLine(`${n} tất tay ${e.total}!`); }
+      else if(e.action === 'call'){ sfx.chip(); logLine(`${n} theo ${fmtXu(e.amount)}.`); }
+      else if(e.action === 'allin-call'){ sfx.chip(); logLine(`${n} theo ${fmtXu(e.amount)} — tất tay!`); }
+      else if(e.action === 'raise'){ sfx.chip(); logLine(`${n} tố lên ${fmtXu(e.total)}!`); }
+      else if(e.action === 'allin-raise'){ sfx.chip(); logLine(`${n} tất tay ${fmtXu(e.total)}!`); }
       break;
     }
     case 'timeout':
@@ -1003,13 +1040,21 @@ function applyEvent(e){
         logLine('Ngửa bài: ' + e.reveals.map(r => `${nameOf(r.playerId)} — ${r.hand.label}`).join(' · '));
       }
       break;
+    case 'bonus': {
+      const ten = nameOf(e.playerId);
+      const heSo = e.multiplier === 2 ? 'ăn gấp đôi' : 'ăn gấp rưỡi';
+      logLine(`${ten} — ${e.label}, ${heSo}! Được thêm ${fmtXu(e.total)} từ người thua.`);
+      toast(`${ten}: ${e.label} — ${heSo}, +${fmtXu(e.total)}!`);
+      sfx.win();
+      break;
+    }
     case 'round-end': {
       sfx.win();
       const names = e.winnerIds.map(nameOf).join(' & ');
       if(e.pots.length > 1){
-        logLine(`Kết ván: ${e.pots.map((p,i) => `${i===0?'hũ chính':'hũ phụ '+i} ${p.amount} → ${p.winners.map(nameOf).join(', ')}`).join(' · ')}`);
+        logLine(`Kết ván: ${e.pots.map((p,i) => `${i===0?'hũ chính':'hũ phụ '+i} ${fmtXu(p.amount)} → ${p.winners.map(nameOf).join(', ')}`).join(' · ')}`);
       } else {
-        logLine(`${names} thắng ${e.totalPot}!`);
+        logLine(`${names} thắng ${fmtXu(e.totalPot)}!`);
       }
       break;
     }
@@ -1123,12 +1168,12 @@ function render(){
 
     el.innerHTML = `
       <div class="seat-name">${esc(p.name)}${tags.join('')}</div>
-      <div class="seat-chips">${p.chips}</div>
+      <div class="seat-chips" title="${fmtDayDu(p.chips)} xu">${fmtXu(p.chips)}</div>
       <div class="cards-row">${cards}</div>
       ${conCheDay && chuaMo > 0
         ? `<div class="flip-hint">Bấm để mở — còn ${chuaMo} lá</div>`
         : `<div class="hand-label">${p.handLabel ? esc(p.handLabel) : ''}</div>`}
-      <div class="seat-bet">${p.betThisRound > 0 ? 'cược ' + p.betThisRound : ''}</div>
+      <div class="seat-bet">${p.betThisRound > 0 ? 'cược ' + fmtXu(p.betThisRound) : ''}</div>
       ${isTurn ? '<div class="timer-bar"><i id="tb-'+p.id+'"></i></div>' : ''}
     `;
 
@@ -1142,7 +1187,7 @@ function render(){
   ui.flipAnim.clear();
 
   // Hũ
-  $('potTotal').textContent = st.pot;
+  $('potTotal').textContent = fmtXu(st.pot);
   const coins = Math.max(0, Math.min(8, Math.round(st.pot / Math.max(1, st.ante))));
   $('coinStack').innerHTML = Array.from({length: coins}).map(() => '<div class="coin"></div>').join('');
   $('txtRound').textContent = st.roundNum;
@@ -1192,7 +1237,9 @@ function renderControls(){
   $('btnFlipAll').style.display = conChuaMo ? 'block' : 'none';
 
   const hostRow = $('hostRow');
-  hostRow.style.display = ui.isHost ? 'flex' : 'none';
+  // Bàn công khai tự chia ván và không cho chia lại vốn — ba nút này chỉ tổ
+  // chiếm chỗ và báo lỗi khi bấm, nên ẩn hẳn đi.
+  hostRow.style.display = (ui.isHost && !ui.room?.walletMode) ? 'flex' : 'none';
   $('btnStart').disabled = !(ui.room?.canStart && st.phase !== 'betting' && st.phase !== 'showdown');
   $('btnAddBot').disabled = (st.players.length >= (ui.room?.config?.maxPlayers ?? 6)) || st.phase === 'betting';
 
@@ -1202,8 +1249,11 @@ function renderControls(){
 
   if(!legal){
     $('stepper').style.display = 'none';
+    $('quickBets').style.display = 'none';
     enable(false, false, false);
-    if(st.phase === 'betting'){
+    if(me?.folded && st.phase === 'betting'){
+      $('callInfo').textContent = 'Bạn đã úp bài — ngồi xem tới hết ván.';
+    } else if(st.phase === 'betting'){
       $('callInfo').textContent = st.turnPlayerId
         ? `Đang chờ ${nameOf(st.turnPlayerId)}…`
         : 'Đang xử lý…';
@@ -1225,8 +1275,9 @@ function renderControls(){
 
   // Tới lượt mình
   ui.raiseTarget = clamp(ui.raiseTarget || legal.minRaise, legal.minRaise, legal.maxRaise);
-  $('raiseAmt').textContent = ui.raiseTarget;
+  $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
   $('stepper').style.display = legal.canRaise ? 'flex' : 'none';
+  renderQuickBets(legal);
   enable(legal.canRaise, legal.canCall, legal.canFold);
 
   if(!legal.allRevealed){
@@ -1241,11 +1292,39 @@ function renderControls(){
 
   $('btnUp').textContent = 'Úp';
   $('btnTheo').textContent = legal.payToCall > 0
-    ? `Theo (${legal.payToCall})${legal.isAllInCall ? ' • tất tay' : ''}`
+    ? `Theo ${fmtXu(legal.payToCall)}${legal.isAllInCall ? ' • tất tay' : ''}`
     : 'Theo (giữ)';
   $('callInfo').innerHTML = legal.callAmount > 0
-    ? `Cần theo <span class="count">${legal.payToCall}</span> để tiếp tục. <span class="count" id="cdown"></span>`
-    : `Không ai tố thêm — bạn có thể giữ bài miễn phí. <span class="count" id="cdown"></span>`;
+    ? `Cần theo <span class="count">${fmtXu(legal.payToCall)}</span>. <span class="count" id="cdown"></span>`
+    : `Chưa ai tố — giữ bài miễn phí. <span class="count" id="cdown"></span>`;
+}
+
+/** Các mức tố nhanh, tính theo "tố thêm bao nhiêu so với mức đang có". */
+const MUC_TO_NHANH = [1_000, 5_000, 10_000, 50_000, 100_000, 500_000];
+
+function renderQuickBets(legal){
+  const box = $('quickBets');
+  if(!legal.canRaise){ box.style.display = 'none'; return; }
+  box.style.display = 'flex';
+
+  const st = ui.state;
+  box.innerHTML = MUC_TO_NHANH.map((them) => {
+    const dich = st.currentBet + them;
+    // Mức nào thấp hơn mức tố tối thiểu, hoặc vượt số chip đang có, thì khoá
+    const duoc = dich >= legal.minRaise && dich <= legal.maxRaise;
+    const dangChon = duoc && ui.raiseTarget === dich;
+    return `<button data-them="${them}" ${duoc ? '' : 'disabled'} class="${dangChon ? 'on' : ''}"
+      title="Tố lên ${fmtDayDu(dich)}">+${fmtXu(them)}</button>`;
+  }).join('');
+
+  box.querySelectorAll('button[data-them]').forEach((b) => {
+    b.onclick = () => {
+      const l = ui.state?.legal; if(!l) return;
+      ui.raiseTarget = clamp(ui.state.currentBet + (+b.dataset.them), l.minRaise, l.maxRaise);
+      $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
+      renderQuickBets(l);
+    };
+  });
 }
 
 function renderStats(){
@@ -1255,7 +1334,7 @@ function renderStats(){
     <div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;">
       <span>${esc(p.name)}</span>
       <span style="font-family:'JetBrains Mono',monospace;color:var(--gold-bright)">
-        ${p.chips} · ${p.stats.roundsWon}/${p.stats.roundsPlayed} ván
+        ${fmtXu(p.chips)} · ${p.stats.roundsWon}/${p.stats.roundsPlayed} ván
       </span>
     </div>`).join('');
   $('statBox').innerHTML = rows;
@@ -1267,7 +1346,7 @@ function renderHistory(hist){
   if(!hist.length){ box.innerHTML = '<div style="opacity:.6">Chưa có ván nào.</div>'; return; }
   box.innerHTML = hist.map(h => `
     <div class="hist-item">
-      <div class="hd">Ván ${h.roundNum} — hũ ${h.totalPot} → ${h.winners.map(w => esc(w.name)).join(', ')}</div>
+      <div class="hd">Ván ${h.roundNum} — hũ ${fmtXu(h.totalPot)} → ${h.winners.map(w => esc(w.name)).join(', ')}</div>
       ${h.reveals.length ? '<div class="rv">' + h.reveals.map(r =>
         `${esc(r.name)}: ${r.cards.map(c => RANK_LABELS[c.rank]+c.suit).join(' ')} (${esc(r.label)})`
       ).join('<br>') + '</div>' : '<div class="rv" style="opacity:.6">không ngửa bài</div>'}
@@ -1298,7 +1377,7 @@ setInterval(() => {
 
 /* ================= NHẬT KÝ & CHAT ================= */
 function logLine(text){
-  for(const [boxId, keep] of [['log', 2], ['logFull', 200]]){
+  for(const [boxId, keep] of [['log', 1], ['logFull', 200]]){
     const box = $(boxId);
     if(!box) continue;
     const el = document.createElement('div');
@@ -1443,17 +1522,17 @@ $('btnUp').onclick = () => act('fold');
 $('raiseMinus').onclick = () => {
   const l = ui.state?.legal; if(!l) return;
   ui.raiseTarget = clamp(ui.raiseTarget - l.raiseStep, l.minRaise, l.maxRaise);
-  $('raiseAmt').textContent = ui.raiseTarget;
+  $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
 };
 $('raisePlus').onclick = () => {
   const l = ui.state?.legal; if(!l) return;
   ui.raiseTarget = clamp(ui.raiseTarget + l.raiseStep, l.minRaise, l.maxRaise);
-  $('raiseAmt').textContent = ui.raiseTarget;
+  $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
 };
 $('raiseAllIn').onclick = () => {
   const l = ui.state?.legal; if(!l) return;
   ui.raiseTarget = l.maxRaise;
-  $('raiseAmt').textContent = ui.raiseTarget;
+  $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
 };
 
 $('btnStart').onclick = () => sendRaw({t:'start'});

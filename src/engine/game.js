@@ -346,8 +346,10 @@ export function getLegalActions(game) {
     callAmount,
     payToCall,
     isAllInCall: callAmount > 0 && callAmount >= actor.chips,
-    // Chưa xem bài thì vẫn được úp (đánh mù), nhưng không được đặt tiền.
-    canFold: callAmount > 0 || !seen,
+    // Úp bài lúc nào cũng được. Trước đây nút Úp bị khoá khi không có gì phải
+    // theo, nên xem bài xấu ngay vòng đầu mà chưa ai tố thì không bỏ được —
+    // bắt buộc phải giữ bài tới cuối ván.
+    canFold: true,
     canCall: seen,
     canRaise: raiseAllowed,
     allRevealed: seen,
@@ -393,10 +395,6 @@ export function applyAction(game, playerId, action) {
 
   switch (action.type) {
     case 'fold': {
-      if (!legal.canFold) {
-        // Không có gì để theo mà vẫn đòi úp -> coi như giữ bài, tránh mất bài oan
-        return applyCall(game, actor, legal, events);
-      }
       actor.folded = true;
       events.push({
         type: 'action',
@@ -564,19 +562,24 @@ function settleRound(game) {
       p.chips += won;
       events.push({ type: 'payout', playerId: p.id, amount: won });
     }
-    if (p.inHand) {
-      const net = won - p.committed;
-      if (net > 0) {
-        p.stats.chipsWon += net;
-        p.stats.roundsWon += 1;
-      } else {
-        p.stats.chipsLost += -net;
-      }
-    }
   }
   game.pot = 0;
 
   const winnerIds = [...new Set(details.flatMap((d) => d.winners))];
+  const bonus = applyWinBonus(game, { reveals, live, winnerIds, events });
+
+  // Thống kê tính sau khi đã cộng thưởng nhân, để con số lãi/lỗ là con số thật
+  for (const p of game.players) {
+    if (!p.inHand) continue;
+    const won = (payouts[p.id] ?? 0) + (bonus?.thu?.[p.id] ?? 0) - (bonus?.tra?.[p.id] ?? 0);
+    const net = won - p.committed;
+    if (net > 0) {
+      p.stats.chipsWon += net;
+      p.stats.roundsWon += 1;
+    } else {
+      p.stats.chipsLost += -net;
+    }
+  }
   game.lastResult = {
     roundNum: game.roundNum,
     totalPot,
@@ -589,6 +592,7 @@ function settleRound(game) {
       categoryName: r.hand.categoryName,
     })),
     committed: Object.fromEntries(contenders.map((p) => [p.id, p.committed])),
+    bonus,
   };
 
   events.push({
@@ -620,6 +624,54 @@ function settleRound(game) {
   }
 
   return events;
+}
+
+/**
+ * Thưởng nhân khi thắng bằng bài đẹp: Sáp ăn gấp đôi, Liêng đồng chất ăn gấp
+ * rưỡi.
+ *
+ * Tiền thưởng do NGƯỜI THUA TRẢ THÊM, không phải hệ thống bù — nếu hệ thống bù
+ * thì tổng xu toàn game cứ phình lên mãi. Mỗi người thua trả thêm phần tương
+ * ứng với số tiền chính họ đã bỏ vào hũ, và không bao giờ trả quá số chip còn
+ * lại của mình.
+ *
+ * Chỉ tính khi CÓ NGỬA BÀI. Mọi người úp hết thì bài không lộ ra, không ai biết
+ * người thắng cầm gì, trả thưởng lúc đó vừa vô lý vừa dễ bị lợi dụng.
+ * Hoà (nhiều người cùng thắng) cũng không tính, cho khỏi rối.
+ *
+ * @returns {{playerId:string, multiplier:number, total:number, thu:object, tra:object}|null}
+ */
+function applyWinBonus(game, { reveals, live, winnerIds, events }) {
+  if (reveals.length < 2) return null;      // không ngửa bài thì thôi
+  if (winnerIds.length !== 1) return null;  // hoà thì thôi
+
+  const winner = getPlayer(game, winnerIds[0]);
+  const heSo = winner?.reveal?.multiplier ?? 1;
+  if (!winner || heSo <= 1) return null;
+
+  const tra = {};
+  let tong = 0;
+  for (const p of live) {
+    if (p.id === winner.id) continue;
+    const phaiTra = Math.min(Math.round(p.committed * (heSo - 1)), p.chips);
+    if (phaiTra <= 0) continue;
+    p.chips -= phaiTra;
+    tra[p.id] = phaiTra;
+    tong += phaiTra;
+  }
+  if (tong <= 0) return null;
+
+  winner.chips += tong;
+  const bonus = {
+    playerId: winner.id,
+    multiplier: heSo,
+    label: winner.reveal.label,
+    total: tong,
+    thu: { [winner.id]: tong },
+    tra,
+  };
+  events.push({ type: 'bonus', ...bonus });
+  return bonus;
 }
 
 /* ================================================================== */
