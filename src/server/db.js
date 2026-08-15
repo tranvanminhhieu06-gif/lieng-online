@@ -1,16 +1,18 @@
 /**
- * Tài khoản, ví xu và điểm danh.
+ * Tài khoản, ví xu và điểm danh — lưu trên PostgreSQL.
  *
- * Dùng SQLite có sẵn trong Node (`node:sqlite`) — không thêm thư viện nào.
- * Toàn bộ dữ liệu nằm trong một file duy nhất, sao lưu chỉ cần copy file đó.
+ * Vì sao không dùng SQLite nữa: gói miễn phí của Render không gắn được ổ đĩa
+ * lưu trữ và ngủ đông sau 15 phút, khi dậy thì container dựng lại từ đầu nên
+ * file SQLite biến mất. Đặt cơ sở dữ liệu ra ngoài (Neon) thì dữ liệu sống độc
+ * lập với vòng đời của server.
  *
- * Cần Node 22.5 trở lên.
+ * Toàn bộ hàm ở đây đều bất đồng bộ — Postgres nói chuyện qua mạng.
  */
 
-import { DatabaseSync } from 'node:sqlite';
+import pg from 'pg';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+
+const { Pool } = pg;
 
 export const STARTING_BALANCE = 50_000; // xu tặng khi mở tài khoản
 export const CHECKIN_REWARD = 10_000;   // xu mỗi ô điểm danh
@@ -65,65 +67,91 @@ function verifyPassword(password, salt, expectedHash) {
 /* ================================================================== */
 
 export class Store {
-  /** @param {string} file  đường dẫn file SQLite, ':memory:' cho test */
-  constructor(file = process.env.DB_FILE ?? 'lieng.db') {
-    // Trên Render, DB_FILE trỏ vào ổ đĩa lưu trữ (ví dụ /data/lieng.db).
-    // Thư mục chưa có thì SQLite chỉ báo "unable to open database file",
-    // rất khó đoán nguyên nhân — nên tự tạo thư mục cho chắc.
-    if (file !== ':memory:') {
-      try { mkdirSync(dirname(file), { recursive: true }); } catch {}
+  /**
+   * @param {string} connectionString  chuỗi kết nối Postgres (DATABASE_URL)
+   * @param {{schema?: string}} opts   schema riêng — dùng để test song song
+   */
+  constructor(connectionString = process.env.DATABASE_URL, opts = {}) {
+    if (!connectionString) {
+      throw new Error(
+        'Thiếu DATABASE_URL. Đặt biến môi trường trỏ tới Postgres, ví dụ Neon.',
+      );
     }
-    this.db = new DatabaseSync(file);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA foreign_keys = ON');
-    this.db.exec(`
+    this.schema = opts.schema ?? 'public';
+    this.pool = new Pool({
+      connectionString,
+      // Neon và hầu hết Postgres đám mây bắt buộc TLS.
+      ssl: isLocal(connectionString) ? undefined : { rejectUnauthorized: false },
+      max: 5,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 15_000,
+      options: this.schema === 'public' ? undefined : `-c search_path=${this.schema}`,
+    });
+  }
+
+  /** Tạo bảng nếu chưa có. Phải gọi một lần lúc khởi động. */
+  async init() {
+    if (this.schema !== 'public') {
+      await this.pool.query(`CREATE SCHEMA IF NOT EXISTS ${this.schema}`);
+    }
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS accounts (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        id           BIGSERIAL PRIMARY KEY,
         username     TEXT NOT NULL UNIQUE,
         salt         TEXT NOT NULL,
         pass_hash    TEXT NOT NULL,
         display_name TEXT NOT NULL,
-        balance      INTEGER NOT NULL DEFAULT 0,
-        created_at   INTEGER NOT NULL
+        balance      BIGINT NOT NULL DEFAULT 0,
+        created_at   BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS sessions (
         token      TEXT PRIMARY KEY,
-        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-        created_at INTEGER NOT NULL
+        account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        created_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS checkins (
-        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         week_start TEXT NOT NULL,
         day_index  INTEGER NOT NULL,
-        amount     INTEGER NOT NULL,
-        claimed_at INTEGER NOT NULL,
+        amount     BIGINT NOT NULL,
+        claimed_at BIGINT NOT NULL,
         PRIMARY KEY (account_id, week_start, day_index)
       );
 
       CREATE TABLE IF NOT EXISTS admin_log (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        id            BIGSERIAL PRIMARY KEY,
+        account_id    BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         username      TEXT NOT NULL,
-        delta         INTEGER NOT NULL,
-        balance_after INTEGER NOT NULL,
+        delta         BIGINT NOT NULL,
+        balance_after BIGINT NOT NULL,
         reason        TEXT NOT NULL DEFAULT '',
-        created_at    INTEGER NOT NULL
+        created_at    BIGINT NOT NULL
       );
     `);
+    return this;
   }
 
-  close() {
-    try { this.db.close(); } catch {}
+  async close() {
+    try { await this.pool.end(); } catch {}
+  }
+
+  /** Chạy một câu lệnh, trả về mảng dòng. */
+  async q(sql, params = []) {
+    const res = await this.pool.query(sql, params);
+    return res.rows;
+  }
+
+  /** Chạy một câu lệnh, trả về dòng đầu tiên hoặc null. */
+  async one(sql, params = []) {
+    const rows = await this.q(sql, params);
+    return rows[0] ?? null;
   }
 
   /* ---------------- TÀI KHOẢN ---------------- */
 
-  /**
-   * @throws nếu tên đăng nhập đã tồn tại hoặc không hợp lệ
-   */
-  register(username, password, displayName) {
+  async register(username, password, displayName) {
     const user = normalizeUsername(username);
     if (user.length < 3) throw new Error('Tên đăng nhập phải từ 3 ký tự');
     if (user.length > 20) throw new Error('Tên đăng nhập tối đa 20 ký tự');
@@ -133,21 +161,25 @@ export class Store {
     if (String(password ?? '').length < 6) {
       throw new Error('Mật khẩu phải từ 6 ký tự');
     }
-    if (this.findByUsername(user)) throw new Error('Tên đăng nhập đã có người dùng');
 
     const { salt, hash } = hashPassword(password);
     const name = cleanDisplayName(displayName || username);
-    const info = this.db
-      .prepare(
-        `INSERT INTO accounts (username, salt, pass_hash, display_name, balance, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(user, salt, hash, name, STARTING_BALANCE, Date.now());
-    return this.getAccount(Number(info.lastInsertRowid));
+
+    // ON CONFLICT thay cho "kiểm tra rồi mới ghi": hai người đăng ký cùng tên
+    // cùng lúc thì chỉ một người thành công, không có kẽ hở.
+    const row = await this.one(
+      `INSERT INTO accounts (username, salt, pass_hash, display_name, balance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (username) DO NOTHING
+       RETURNING id`,
+      [user, salt, hash, name, STARTING_BALANCE, Date.now()],
+    );
+    if (!row) throw new Error('Tên đăng nhập đã có người dùng');
+    return this.getAccount(row.id);
   }
 
-  login(username, password) {
-    const row = this.findByUsername(normalizeUsername(username));
+  async login(username, password) {
+    const row = await this.findByUsername(normalizeUsername(username));
     if (!row) throw new Error('Sai tên đăng nhập hoặc mật khẩu');
     if (!verifyPassword(String(password ?? ''), row.salt, row.pass_hash)) {
       throw new Error('Sai tên đăng nhập hoặc mật khẩu');
@@ -155,30 +187,33 @@ export class Store {
     return this.getAccount(row.id);
   }
 
-  findByUsername(username) {
-    return this.db
-      .prepare('SELECT * FROM accounts WHERE username = ?')
-      .get(username) ?? null;
+  async findByUsername(username) {
+    const row = await this.one(
+      'SELECT * FROM accounts WHERE username = $1',
+      [normalizeUsername(username)],
+    );
+    return row ? { ...row, id: num(row.id), balance: num(row.balance) } : null;
   }
 
   /** Thông tin công khai của tài khoản (không kèm mật khẩu). */
-  getAccount(id) {
-    const row = this.db
-      .prepare('SELECT id, username, display_name, balance, created_at FROM accounts WHERE id = ?')
-      .get(id);
+  async getAccount(id) {
+    const row = await this.one(
+      'SELECT id, username, display_name, balance, created_at FROM accounts WHERE id = $1',
+      [id],
+    );
     if (!row) return null;
     return {
-      id: row.id,
+      id: num(row.id),
       username: row.username,
       displayName: row.display_name,
-      balance: row.balance,
-      createdAt: row.created_at,
+      balance: num(row.balance),
+      createdAt: num(row.created_at),
     };
   }
 
-  getBalance(id) {
-    const row = this.db.prepare('SELECT balance FROM accounts WHERE id = ?').get(id);
-    return row ? row.balance : null;
+  async getBalance(id) {
+    const row = await this.one('SELECT balance FROM accounts WHERE id = $1', [id]);
+    return row ? num(row.balance) : null;
   }
 
   /**
@@ -186,67 +221,76 @@ export class Store {
    * Dùng khi đồng bộ chip trên bàn về ví — engine là nguồn sự thật của ván,
    * ví chỉ chép lại kết quả.
    */
-  setBalance(id, balance) {
+  async setBalance(id, balance) {
     if (!Number.isInteger(balance) || balance < 0) {
       throw new Error(`Số dư không hợp lệ: ${balance}`);
     }
-    this.db.prepare('UPDATE accounts SET balance = ? WHERE id = ?').run(balance, id);
+    await this.pool.query('UPDATE accounts SET balance = $1 WHERE id = $2', [balance, id]);
     return balance;
   }
 
-  /** Cộng/trừ số dư. Trả về số dư mới. Không cho âm. */
-  addBalance(id, delta) {
-    const current = this.getBalance(id);
-    if (current === null) throw new Error('Không tìm thấy tài khoản');
-    const next = current + delta;
-    if (next < 0) throw new Error('Số dư không đủ');
-    return this.setBalance(id, next);
+  /**
+   * Cộng/trừ số dư trong MỘT câu lệnh. Điều kiện `balance + delta >= 0` nằm
+   * ngay trong WHERE nên hai yêu cầu chạy song song không thể làm số dư âm.
+   */
+  async addBalance(id, delta) {
+    const row = await this.one(
+      `UPDATE accounts SET balance = balance + $1
+       WHERE id = $2 AND balance + $1 >= 0
+       RETURNING balance`,
+      [delta, id],
+    );
+    if (row) return num(row.balance);
+    const exists = await this.getBalance(id);
+    if (exists === null) throw new Error('Không tìm thấy tài khoản');
+    throw new Error('Số dư không đủ');
   }
 
-  renameAccount(id, displayName) {
+  async renameAccount(id, displayName) {
     const name = cleanDisplayName(displayName);
-    this.db.prepare('UPDATE accounts SET display_name = ? WHERE id = ?').run(name, id);
+    await this.pool.query('UPDATE accounts SET display_name = $1 WHERE id = $2', [name, id]);
     return name;
   }
 
   /* ---------------- PHIÊN ĐĂNG NHẬP ---------------- */
 
-  createSession(accountId) {
+  async createSession(accountId) {
     const token = randomBytes(24).toString('base64url');
-    this.db
-      .prepare('INSERT INTO sessions (token, account_id, created_at) VALUES (?, ?, ?)')
-      .run(token, accountId, Date.now());
+    await this.pool.query(
+      'INSERT INTO sessions (token, account_id, created_at) VALUES ($1, $2, $3)',
+      [token, accountId, Date.now()],
+    );
     return token;
   }
 
   /** Trả về tài khoản của phiên, hoặc null nếu token sai/hết hạn. */
-  resolveSession(token, maxAgeMs = 30 * 24 * 3600 * 1000) {
+  async resolveSession(token, maxAgeMs = 30 * 24 * 3600 * 1000) {
     if (!token) return null;
-    const row = this.db.prepare('SELECT * FROM sessions WHERE token = ?').get(token);
+    const row = await this.one('SELECT * FROM sessions WHERE token = $1', [token]);
     if (!row) return null;
-    if (Date.now() - row.created_at > maxAgeMs) {
-      this.destroySession(token);
+    if (Date.now() - num(row.created_at) > maxAgeMs) {
+      await this.destroySession(token);
       return null;
     }
     return this.getAccount(row.account_id);
   }
 
-  destroySession(token) {
-    this.db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+  async destroySession(token) {
+    await this.pool.query('DELETE FROM sessions WHERE token = $1', [token]);
   }
 
   /* ---------------- ĐIỂM DANH ---------------- */
 
   /**
    * Thẻ điểm danh của tuần hiện tại: 7 ô từ thứ 2 tới chủ nhật.
-   * Ô đã nhận thì `claimed = true`; ô của ngày mai trở đi thì `future = true`.
    */
-  getCheckinCard(accountId, ts = Date.now()) {
+  async getCheckinCard(accountId, ts = Date.now()) {
     const { weekStart, dayIndex, date } = gameDay(ts);
-    const rows = this.db
-      .prepare('SELECT day_index, amount FROM checkins WHERE account_id = ? AND week_start = ?')
-      .all(accountId, weekStart);
-    const claimed = new Map(rows.map((r) => [r.day_index, r.amount]));
+    const rows = await this.q(
+      'SELECT day_index, amount FROM checkins WHERE account_id = $1 AND week_start = $2',
+      [accountId, weekStart],
+    );
+    const claimed = new Map(rows.map((r) => [r.day_index, num(r.amount)]));
 
     const days = WEEKDAY_LABELS.map((label, i) => ({
       dayIndex: i,
@@ -265,7 +309,7 @@ export class Store {
       todayIndex: dayIndex,
       canClaimToday: !claimed.has(dayIndex),
       claimedThisWeek: rows.length,
-      totalThisWeek: rows.reduce((s, r) => s + r.amount, 0),
+      totalThisWeek: rows.reduce((s, r) => s + num(r.amount), 0),
       days,
     };
   }
@@ -274,148 +318,212 @@ export class Store {
    * Nhận thưởng điểm danh của HÔM NAY.
    * Chỉ nhận được ô của ngày hôm nay — bỏ ngày nào là mất ngày đó.
    *
-   * @returns {{ok:true, amount:number, balance:number, card:object}}
-   * @throws nếu hôm nay đã điểm danh rồi
+   * Chạy trong một giao dịch: ghi ô điểm danh và cộng xu phải cùng thành công
+   * hoặc cùng thất bại. `ON CONFLICT DO NOTHING` đảm bảo bấm mười lần cùng lúc
+   * cũng chỉ ăn thưởng một lần.
    */
-  claimCheckin(accountId, ts = Date.now()) {
+  async claimCheckin(accountId, ts = Date.now()) {
     const { weekStart, dayIndex } = gameDay(ts);
-    const already = this.db
-      .prepare(
-        'SELECT 1 FROM checkins WHERE account_id = ? AND week_start = ? AND day_index = ?',
-      )
-      .get(accountId, weekStart, dayIndex);
-    if (already) throw new Error('Hôm nay bạn đã điểm danh rồi');
-
-    // Ghi nhận trước rồi mới cộng xu: khoá UNIQUE của bảng đảm bảo hai yêu cầu
-    // gửi cùng lúc thì chỉ một cái ghi được, không thể nhận thưởng hai lần.
-    this.db
-      .prepare(
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const ghi = await client.query(
         `INSERT INTO checkins (account_id, week_start, day_index, amount, claimed_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(accountId, weekStart, dayIndex, CHECKIN_REWARD, ts);
-
-    const balance = this.addBalance(accountId, CHECKIN_REWARD);
-    return {
-      ok: true,
-      amount: CHECKIN_REWARD,
-      balance,
-      card: this.getCheckinCard(accountId, ts),
-    };
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (account_id, week_start, day_index) DO NOTHING
+         RETURNING 1`,
+        [accountId, weekStart, dayIndex, CHECKIN_REWARD, ts],
+      );
+      if (ghi.rowCount === 0) {
+        await client.query('ROLLBACK');
+        throw new Error('Hôm nay bạn đã điểm danh rồi');
+      }
+      const bal = await client.query(
+        'UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING balance',
+        [CHECKIN_REWARD, accountId],
+      );
+      if (bal.rowCount === 0) {
+        await client.query('ROLLBACK');
+        throw new Error('Không tìm thấy tài khoản');
+      }
+      await client.query('COMMIT');
+      return {
+        ok: true,
+        amount: CHECKIN_REWARD,
+        balance: num(bal.rows[0].balance),
+        card: await this.getCheckinCard(accountId, ts),
+      };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   /* ---------------- TRANG QUẢN LÝ ---------------- */
 
   /**
    * Cộng (hoặc trừ, khi delta âm) xu cho một tài khoản theo TÊN ĐĂNG NHẬP,
-   * đồng thời ghi vào sổ cái.
-   *
-   * @returns {{account:object, delta:number, balanceBefore:number, balanceAfter:number}}
+   * đồng thời ghi vào sổ cái. Cả hai việc nằm trong một giao dịch.
    */
-  adminAdjust(username, delta, reason = '', ts = Date.now()) {
-    const row = this.findByUsername(normalizeUsername(username));
-    if (!row) throw new Error(`Không có tài khoản nào tên "${username}"`);
+  async adminAdjust(username, delta, reason = '', ts = Date.now()) {
+    const account = await this.findByUsername(username);
+    if (!account) throw new Error(`Không có tài khoản nào tên "${username}"`);
     const amount = Math.trunc(Number(delta));
     if (!Number.isFinite(amount) || amount === 0) {
       throw new Error('Số xu phải là số nguyên khác 0');
     }
-    const balanceBefore = row.balance;
+    const balanceBefore = account.balance;
     if (balanceBefore + amount < 0) {
       throw new Error(
         `Trừ ${Math.abs(amount).toLocaleString('vi-VN')} xu thì âm mất — tài khoản chỉ có ${balanceBefore.toLocaleString('vi-VN')} xu`,
       );
     }
-    const balanceAfter = this.setBalance(row.id, balanceBefore + amount);
-    this.writeAdminLog(row.id, row.username, amount, balanceAfter, reason, ts);
-    return { account: this.getAccount(row.id), delta: amount, balanceBefore, balanceAfter };
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const upd = await client.query(
+        `UPDATE accounts SET balance = balance + $1
+         WHERE id = $2 AND balance + $1 >= 0
+         RETURNING balance`,
+        [amount, account.id],
+      );
+      if (upd.rowCount === 0) {
+        await client.query('ROLLBACK');
+        throw new Error('Số dư không đủ');
+      }
+      const balanceAfter = num(upd.rows[0].balance);
+      await client.query(
+        `INSERT INTO admin_log (account_id, username, delta, balance_after, reason, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [account.id, account.username, amount, balanceAfter, String(reason ?? '').slice(0, 200), ts],
+      );
+      await client.query('COMMIT');
+      return {
+        account: await this.getAccount(account.id),
+        delta: amount,
+        balanceBefore,
+        balanceAfter,
+      };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   /** Đặt thẳng số dư về một con số. Sổ cái ghi lại phần chênh lệch. */
-  adminSetBalance(username, value, reason = '', ts = Date.now()) {
-    const row = this.findByUsername(normalizeUsername(username));
-    if (!row) throw new Error(`Không có tài khoản nào tên "${username}"`);
+  async adminSetBalance(username, value, reason = '', ts = Date.now()) {
+    const account = await this.findByUsername(username);
+    if (!account) throw new Error(`Không có tài khoản nào tên "${username}"`);
     const target = Math.trunc(Number(value));
     if (!Number.isInteger(target) || target < 0) {
       throw new Error('Số dư mới phải là số nguyên không âm');
     }
-    const balanceBefore = row.balance;
-    const balanceAfter = this.setBalance(row.id, target);
-    const delta = balanceAfter - balanceBefore;
-    if (delta !== 0) {
-      this.writeAdminLog(row.id, row.username, delta, balanceAfter, reason, ts);
-    }
-    return { account: this.getAccount(row.id), delta, balanceBefore, balanceAfter };
-  }
+    const balanceBefore = account.balance;
+    const delta = target - balanceBefore;
 
-  writeAdminLog(accountId, username, delta, balanceAfter, reason, ts) {
-    this.db
-      .prepare(
-        `INSERT INTO admin_log (account_id, username, delta, balance_after, reason, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(accountId, username, delta, balanceAfter, String(reason ?? '').slice(0, 200), ts);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('UPDATE accounts SET balance = $1 WHERE id = $2', [target, account.id]);
+      if (delta !== 0) {
+        await client.query(
+          `INSERT INTO admin_log (account_id, username, delta, balance_after, reason, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [account.id, account.username, delta, target, String(reason ?? '').slice(0, 200), ts],
+        );
+      }
+      await client.query('COMMIT');
+      return {
+        account: await this.getAccount(account.id),
+        delta,
+        balanceBefore,
+        balanceAfter: target,
+      };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   /** 20 giao dịch gần nhất, mới nhất lên đầu. */
-  adminLog(limit = 20) {
-    return this.db
-      .prepare(
-        `SELECT username, delta, balance_after, reason, created_at
-         FROM admin_log ORDER BY id DESC LIMIT ?`,
-      )
-      .all(Math.max(1, Math.min(200, limit)))
-      .map((r) => ({
-        username: r.username,
-        delta: r.delta,
-        balanceAfter: r.balance_after,
-        reason: r.reason,
-        at: r.created_at,
-      }));
-  }
-
-  /** Danh sách tài khoản cho trang quản lý, có tìm kiếm theo tên. */
-  listAccounts({ q = '', limit = 50 } = {}) {
-    const n = Math.max(1, Math.min(200, limit));
-    const term = String(q ?? '').trim().toLowerCase();
-    const rows = term
-      ? this.db
-          .prepare(
-            `SELECT id, username, display_name, balance, created_at FROM accounts
-             WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?
-             ORDER BY balance DESC LIMIT ?`,
-          )
-          .all(`%${term}%`, `%${term}%`, n)
-      : this.db
-          .prepare(
-            `SELECT id, username, display_name, balance, created_at FROM accounts
-             ORDER BY balance DESC LIMIT ?`,
-          )
-          .all(n);
+  async adminLog(limit = 20) {
+    const rows = await this.q(
+      `SELECT username, delta, balance_after, reason, created_at
+       FROM admin_log ORDER BY id DESC LIMIT $1`,
+      [Math.max(1, Math.min(200, limit))],
+    );
     return rows.map((r) => ({
-      id: r.id,
       username: r.username,
-      displayName: r.display_name,
-      balance: r.balance,
-      createdAt: r.created_at,
+      delta: num(r.delta),
+      balanceAfter: num(r.balance_after),
+      reason: r.reason,
+      at: num(r.created_at),
     }));
   }
 
-  countAccounts() {
-    return this.db.prepare('SELECT COUNT(*) AS n FROM accounts').get().n;
+  /** Danh sách tài khoản cho trang quản lý, có tìm kiếm theo tên. */
+  async listAccounts({ q = '', limit = 50 } = {}) {
+    const n = Math.max(1, Math.min(200, limit));
+    const term = String(q ?? '').trim().toLowerCase();
+    const rows = term
+      ? await this.q(
+          `SELECT id, username, display_name, balance, created_at FROM accounts
+           WHERE LOWER(username) LIKE $1 OR LOWER(display_name) LIKE $1
+           ORDER BY balance DESC LIMIT $2`,
+          [`%${term}%`, n],
+        )
+      : await this.q(
+          `SELECT id, username, display_name, balance, created_at FROM accounts
+           ORDER BY balance DESC LIMIT $1`,
+          [n],
+        );
+    return rows.map((r) => ({
+      id: num(r.id),
+      username: r.username,
+      displayName: r.display_name,
+      balance: num(r.balance),
+      createdAt: num(r.created_at),
+    }));
+  }
+
+  async countAccounts() {
+    const row = await this.one('SELECT COUNT(*)::int AS n FROM accounts');
+    return row.n;
   }
 
   /* ---------------- THỐNG KÊ ---------------- */
 
   /** Tổng xu toàn hệ thống — dùng để kiểm tra không có xu tự sinh ra. */
-  totalBalance() {
-    return this.db.prepare('SELECT COALESCE(SUM(balance),0) AS s FROM accounts').get().s;
+  async totalBalance() {
+    const row = await this.one('SELECT COALESCE(SUM(balance),0) AS s FROM accounts');
+    return num(row.s);
   }
 
-  topPlayers(limit = 10) {
-    return this.db
-      .prepare('SELECT display_name, balance FROM accounts ORDER BY balance DESC LIMIT ?')
-      .all(limit);
+  async topPlayers(limit = 10) {
+    const rows = await this.q(
+      'SELECT display_name, balance FROM accounts ORDER BY balance DESC LIMIT $1',
+      [limit],
+    );
+    return rows.map((r) => ({ display_name: r.display_name, balance: num(r.balance) }));
   }
+}
+
+/** Postgres trả BIGINT dưới dạng chuỗi để không mất độ chính xác. */
+function num(v) {
+  return v === null || v === undefined ? v : Number(v);
+}
+
+function isLocal(connectionString) {
+  return /@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(connectionString)
+    || connectionString.startsWith('postgresql:///')
+    || connectionString.includes('host=/');
 }
 
 function normalizeUsername(username) {

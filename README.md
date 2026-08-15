@@ -8,26 +8,41 @@ Chuyển từ `lieng_prototype.html` (một file HTML chạy offline) sang kiế
 
 ## Chạy thử trên máy
 
-Cần Node.js phiên bản **22.5 trở lên** (dùng SQLite có sẵn trong Node, `node:sqlite`).
+Cần Node.js 20 trở lên và một **PostgreSQL**. Không cần cài Postgres trên máy —
+cách nhanh nhất là tạo một cơ sở dữ liệu miễn phí ở [Neon](https://neon.tech)
+(xem mục triển khai bên dưới) rồi dùng chung chuỗi kết nối đó cho cả máy mình
+lẫn bản chạy thật.
+
+```powershell
+npm install
+
+# Windows PowerShell
+$env:DATABASE_URL='postgresql://user:matkhau@ep-xxx.neon.tech/dbname?sslmode=require'
+npm start
+```
 
 ```bash
-npm install
+# macOS / Linux
+export DATABASE_URL='postgresql://...'
 npm start
 ```
 
 Mở http://localhost:3000 → **Đăng ký** (được tặng 50.000 xu) → **Điểm danh** → chọn một mức bàn.
 Mở thêm tab ẩn danh, đăng ký tài khoản khác, vào cùng mức bàn để chơi với nhau.
 
-Dữ liệu tài khoản nằm trong file `lieng.db` cạnh dự án — sao lưu chỉ cần copy file đó.
-Đổi chỗ lưu bằng biến môi trường `DB_FILE`.
+### Chạy test
 
-Chạy test:
-
-```bash
+```powershell
+$env:TEST_DATABASE_URL='postgresql://...'
 npm test
 ```
 
 123 test, gồm cả test đầu-cuối dựng server thật và nối nhiều WebSocket thật.
+
+Mỗi file test tự tạo một **schema riêng** rồi xoá sạch khi xong (xem
+`test/pg-helper.js`), nên chĩa vào cùng cơ sở dữ liệu đang dùng thật cũng không
+đụng tới dữ liệu người chơi. Dù vậy vẫn nên tạo một cơ sở dữ liệu riêng cho test
+nếu bạn muốn chắc chắn.
 
 ---
 
@@ -89,7 +104,7 @@ src/engine/     ← luật chơi thuần, không biết gì về mạng hay giao
   bot.js          AI nhà cái ảo
 
 src/server/     ← lớp mạng
-  db.js           SQLite: tài khoản, ví xu, điểm danh, sổ cái
+  db.js           PostgreSQL: tài khoản, ví xu, điểm danh, sổ cái
   rng.js          chia bài bằng CSPRNG, sinh mã phòng và token
   tiers.js        khai báo các mức bàn công khai
   room.js         phòng chơi: đồng hồ lượt, bot, kết nối lại, chat, lịch sử
@@ -105,6 +120,7 @@ test/
   pots.test.js      hũ phụ, gồm test bảo toàn tiền với 100 tình huống ngẫu nhiên
   game.test.js      luồng ván, chống đi sai lượt, chip không âm
   flip.test.js      lật bài, chặn đặt cược khi chưa mở, úp mù
+  pg-helper.js      tiện ích: mỗi file test một schema Postgres riêng
   account.test.js   tài khoản, mật khẩu, điểm danh theo giờ Việt Nam
   admin.test.js     cộng/trừ xu, sổ cái, bảo mật trang quản lý
   e2e.test.js       server + nhiều client thật
@@ -120,6 +136,7 @@ test/
 | Chia bài | `Math.random()` ở client | `crypto.randomInt()` ở server |
 | Bài của đối thủ | Gửi hết cho client, giấu bằng CSS | Không rời server tới lúc ngửa bài |
 | Bài của chính mình | Chia xong thấy ngay cả 3 lá | Chia úp, tự bấm lật từng lá |
+| Lưu trữ | Không lưu gì, đóng tab là mất | PostgreSQL, sống độc lập với server |
 | Vòng cược | `await` chờ người chơi bấm nút | Máy trạng thái, không chặn |
 | Hết giờ | Không có, treo vô hạn | Đồng hồ 25s, hết giờ tự úp/giữ |
 | Rớt mạng | Mất sạch | Nối lại bằng token, giữ nguyên ghế và tiền |
@@ -213,19 +230,36 @@ trước lúc ngửa bài nên không có gì để giấu.
 
 ## Đưa lên mạng bằng Render — từng bước
 
-### Bước 0. Điều quan trọng nhất phải biết trước
+### Bước 0. Vì sao cơ sở dữ liệu phải nằm ngoài Render
 
-Trên Render, **ổ đĩa thường bị xoá sạch mỗi lần deploy hoặc khởi động lại**. Toàn bộ
-tài khoản, số dư, lịch sử điểm danh của người chơi nằm trong file `lieng.db`, nên nếu
-để mặc định thì cứ mỗi lần sửa code là mọi người mất sạch xu.
+Ổ đĩa của Render bị xoá sạch mỗi lần deploy, và gói **free** còn **ngủ đông sau 15
+phút không ai truy cập** — khi dậy thì container được dựng lại từ đầu. Nếu để cơ sở
+dữ liệu trên chính máy đó thì cứ 15 phút không ai chơi là toàn bộ tài khoản và số dư
+bay sạch.
 
-Cách duy nhất để giữ dữ liệu là gắn **ổ đĩa lưu trữ (Persistent Disk)** và trỏ
-`DB_FILE` vào đó. Ổ đĩa chỉ gắn được từ gói **Starter** trở lên (khoảng 7 USD/tháng,
-cộng thêm khoảng 0,25 USD/GB cho đĩa). Gói Free ngoài việc không gắn được đĩa còn
-**ngủ đông sau 15 phút không ai vào** — người chơi sẽ bị rớt kết nối và phải chờ gần
-một phút cho server dậy.
+Nên cơ sở dữ liệu đặt ở **Neon** (PostgreSQL, miễn phí vĩnh viễn 0,5GB — thừa cho
+vài nghìn tài khoản). Nó sống độc lập với server, nên Render ngủ hay deploy lại bao
+nhiêu lần cũng không ảnh hưởng.
 
-File `render.yaml` trong repo đã cấu hình sẵn đúng như trên.
+Cái giá còn lại của gói free: người đầu tiên vào sau khi server ngủ phải chờ khoảng
+**50 giây**. Muốn hết ngủ thì sửa `plan: free` thành `plan: starter` trong
+`render.yaml` (~7 USD/tháng).
+
+### Bước 0b. Tạo cơ sở dữ liệu ở Neon
+
+1. Vào https://neon.tech → **Sign up** (đăng nhập bằng GitHub cho nhanh).
+2. **Create project**: đặt tên `lieng`, chọn region **Asia Pacific (Singapore)** cho
+   gần Render.
+3. Xong sẽ hiện **Connection string** dạng:
+
+   ```
+   postgresql://lieng_owner:matkhau@ep-xxx-yyy.ap-southeast-1.aws.neon.tech/lieng?sslmode=require
+   ```
+
+4. Bấm copy và **lưu lại** — lát nữa dán vào Render. Đây là chìa khoá vào toàn bộ dữ
+   liệu người chơi, đừng đưa lên git hay gửi cho ai.
+
+Không cần tạo bảng gì cả — server tự tạo lúc khởi động lần đầu.
 
 ### Bước 1. Đưa mã nguồn lên GitHub
 
@@ -240,14 +274,14 @@ git add .
 git commit -m "Liêng online: game bài Liêng nhiều người chơi"
 ```
 
-Kiểm tra lại trước khi đẩy đi — lệnh này phải **không** in ra `lieng.db` hay `.env`:
+Kiểm tra lại trước khi đẩy đi — lệnh này phải **không** in ra `.env` hay file `.db` nào:
 
 ```powershell
 git ls-files
 ```
 
-Đúng ra sẽ có 26 file. Nếu thấy `lieng.db` thì dừng lại, vì trong đó có tài khoản và
-mã băm mật khẩu của người chơi.
+Chuỗi kết nối Neon và mật khẩu quản lý chỉ được nằm ở biến môi trường, tuyệt đối
+không nằm trong repo.
 
 Sau đó vào https://github.com/new tạo một repo **riêng tư** tên `lieng-online`,
 **không** tích "Add a README file", rồi chạy hai lệnh GitHub hiện ra:
@@ -264,22 +298,26 @@ Lần đầu push, Git sẽ mở cửa sổ đăng nhập GitHub.
 1. Đăng ký tại https://render.com, chọn đăng nhập bằng GitHub.
 2. Bấm **New +** → **Blueprint**.
 3. Chọn repo `lieng-online`. Render tự đọc `render.yaml` và hiện sẵn một dịch vụ web
-   kèm ổ đĩa 1GB.
-4. Bấm **Apply**. Render sẽ hỏi giá tiền của gói Starter — xác nhận.
+   chạy gói free.
+4. Bấm **Apply**.
 
 Lần deploy đầu mất khoảng 2–4 phút.
 
-### Bước 3. Đặt mật khẩu trang quản lý
+### Bước 3. Điền hai biến bí mật
 
-`render.yaml` cố ý **không** chứa mật khẩu. Vào dịch vụ vừa tạo →
-**Environment** → **Add Environment Variable**:
+`render.yaml` cố ý **không** chứa chuỗi kết nối và mật khẩu. Vào dịch vụ vừa tạo →
+**Environment** → **Add Environment Variable**, thêm hai biến:
 
 | Key | Value |
 |---|---|
+| `DATABASE_URL` | chuỗi kết nối Neon đã copy ở bước 0b |
 | `ADMIN_PASSWORD` | một mật khẩu dài do bạn tự đặt |
 
-Lưu lại, Render tự deploy lại. Xong thì `https://<tên>.onrender.com/admin` mới vào
-được. Không đặt biến này thì `/admin` trả về 404.
+Lưu lại, Render tự deploy lại.
+
+Thiếu `DATABASE_URL` thì server không khởi động được và log sẽ ghi rõ
+*"Thiếu DATABASE_URL"*. Thiếu `ADMIN_PASSWORD` thì server vẫn chạy bình thường,
+chỉ là `/admin` trả về 404.
 
 ### Bước 4. Kiểm tra
 
@@ -291,8 +329,11 @@ hình gì thêm.
 
 **Kiểm tra dữ liệu có thật sự được giữ không** (đây là chỗ dễ sai nhất): đăng ký một
 tài khoản, ghi lại số dư, rồi vào Render bấm **Manual Deploy → Deploy latest commit**.
-Deploy xong đăng nhập lại — nếu tài khoản còn và số dư đúng thì ổ đĩa đã hoạt động.
-Nếu phải đăng ký lại từ đầu thì `DB_FILE` chưa trỏ vào `/data`.
+Deploy xong đăng nhập lại — tài khoản còn và số dư đúng thì Neon đã hoạt động. Nếu
+phải đăng ký lại từ đầu thì `DATABASE_URL` chưa được đặt đúng.
+
+Muốn xem tận mắt: vào Neon → **Tables** → bảng `accounts`, sẽ thấy tài khoản vừa tạo
+nằm đó.
 
 ### Bước 5. Về sau, mỗi lần sửa code
 
@@ -309,15 +350,16 @@ Render tự deploy lại khi thấy commit mới trên nhánh `main`.
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `PORT` | 3000 | Render tự đặt, không cần điền |
-| `DB_FILE` | `lieng.db` | Đường dẫn CSDL. Trên Render phải là `/data/lieng.db` |
+| `DATABASE_URL` | (bắt buộc) | Chuỗi kết nối PostgreSQL. Thiếu thì server không chạy |
+| `DB_SCHEMA` | `public` | Schema Postgres. Chỉ cần khi nhiều môi trường dùng chung một CSDL |
 | `GAME_TZ` | `Asia/Bangkok` | Múi giờ tính ngày điểm danh |
 | `ADMIN_PASSWORD` | (trống) | Trống thì `/admin` trả về 404 |
 
 ### Sao lưu
 
-Toàn bộ dữ liệu nằm trong một file duy nhất. Vào tab **Shell** của dịch vụ trên Render
-rồi chạy `sqlite3 /data/lieng.db ".backup /data/backup.db"`, hoặc đơn giản hơn là bật
-tính năng snapshot ổ đĩa của Render.
+Neon tự sao lưu và cho phép khôi phục về một thời điểm bất kỳ trong 7 ngày gần nhất
+(mục **Restore** trong bảng điều khiển Neon). Muốn tải về máy thì chạy
+`pg_dump "$DATABASE_URL" > backup.sql`.
 
 ---
 
@@ -330,8 +372,8 @@ fly launch --no-deploy
 fly deploy
 ```
 
-`fly.toml` cần `internal_port = 3000`, bật `force_https`, và gắn volume cho `/data`
-giống như trên.
+`fly.toml` cần `internal_port = 3000` và bật `force_https`. Đặt chuỗi kết nối bằng
+`fly secrets set DATABASE_URL=...`.
 
 ### VPS tự quản (Nginx)
 
@@ -350,10 +392,10 @@ location / {
 
 Hai dòng `Upgrade` / `Connection` là bắt buộc, thiếu là WebSocket không nối được.
 
-**Lưu ý khi chạy nhiều tiến trình:** trạng thái phòng đang nằm trong RAM của một tiến
-trình, và SQLite cũng chỉ một tiến trình ghi. Nên để **đúng một instance** (Render mặc
-định là vậy). Muốn scale ngang thì phải bật sticky session và chuyển trạng thái phòng
-sang Redis, CSDL sang Postgres.
+**Lưu ý khi chạy nhiều tiến trình:** cơ sở dữ liệu thì chịu được nhiều instance, nhưng
+**trạng thái phòng vẫn nằm trong RAM của một tiến trình** — hai instance sẽ có hai bàn
+khác nhau cùng một mã phòng. Nên để **đúng một instance** (Render mặc định là vậy).
+Muốn scale ngang thì phải chuyển trạng thái phòng sang Redis và bật sticky session.
 
 ---
 

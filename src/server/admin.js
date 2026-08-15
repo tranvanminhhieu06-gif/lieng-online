@@ -89,31 +89,35 @@ export function handleAdminApi(req, res, url, { store, rooms }) {
   }
 
   if (route === 'players' && req.method === 'GET') {
-    json(res, 200, {
-      total: store.countAccounts(),
-      players: store.listAccounts({ q: url.searchParams.get('q') ?? '', limit: 50 }),
-    });
+    reply(res, async () => ({
+      total: await store.countAccounts(),
+      players: await store.listAccounts({ q: url.searchParams.get('q') ?? '', limit: 50 }),
+    }));
     return true;
   }
 
   if (route === 'log' && req.method === 'GET') {
-    json(res, 200, { log: store.adminLog(20) });
+    reply(res, async () => ({ log: await store.adminLog(20) }));
     return true;
   }
 
   if (route === 'adjust' && req.method === 'POST') {
     readJson(req, res, (body) => {
-      try {
-        json(res, 200, applyAdjustment(body, { store, rooms }));
-      } catch (err) {
-        json(res, 400, { error: err.message });
-      }
+      reply(res, () => applyAdjustment(body, { store, rooms }));
     });
     return true;
   }
 
   json(res, 404, { error: 'Không có API đó' });
   return true;
+}
+
+/** Chạy một việc bất đồng bộ rồi trả kết quả JSON, lỗi thì trả 400. */
+function reply(res, work) {
+  Promise.resolve()
+    .then(work)
+    .then((payload) => json(res, 200, payload))
+    .catch((err) => json(res, 400, { error: err?.message ?? 'Có lỗi xảy ra' }));
 }
 
 /**
@@ -124,11 +128,11 @@ export function handleAdminApi(req, res, url, { store, rooms }) {
  * số chip trên bàn. Nếu chỉ sửa trong CSDL, xu vừa cộng sẽ bị xoá sạch khi ván
  * đang chơi kết thúc.
  */
-export function applyAdjustment({ username, mode, amount, reason }, { store, rooms }) {
+export async function applyAdjustment({ username, mode, amount, reason }, { store, rooms }) {
   const name = String(username ?? '').trim();
   if (!name) throw new Error('Chưa điền tên đăng nhập');
 
-  const account = store.findByUsername(name.toLowerCase());
+  const account = await store.findByUsername(name.toLowerCase());
   if (!account) throw new Error(`Không có tài khoản nào tên "${name}"`);
 
   const seat = rooms.findSeat(account.id);
@@ -141,11 +145,11 @@ export function applyAdjustment({ username, mode, amount, reason }, { store, roo
         'hoặc đợi họ rời bàn.',
       );
     }
-    const res = store.adminSetBalance(name, amount, reason);
+    const res = await store.adminSetBalance(name, amount, reason);
     return { ...res, seated: null };
   }
 
-  const res = store.adminAdjust(name, amount, reason);
+  const res = await store.adminAdjust(name, amount, reason);
 
   if (seat) {
     const player = getPlayer(seat.room.game, seat.playerId);

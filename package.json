@@ -5,14 +5,15 @@
   "type": "module",
   "main": "src/server/index.js",
   "scripts": {
-    "start": "node --experimental-sqlite src/server/index.js",
-    "dev": "node --experimental-sqlite --watch src/server/index.js",
-    "test": "node --experimental-sqlite --test --test-timeout=40000 test/*.test.js"
+    "start": "node src/server/index.js",
+    "dev": "node --watch src/server/index.js",
+    "test": "node --test --test-timeout=40000 test/*.test.js"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=20"
   },
   "dependencies": {
+    "pg": "^8.23.0",
     "ws": "^8.18.0"
   },
   "license": "MIT"

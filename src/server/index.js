@@ -29,7 +29,11 @@ const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? '0.0.0.0';
 
-const store = new Store();
+// DB_SCHEMA cho phép nhiều môi trường dùng chung một Postgres (test dùng nó
+// để mỗi file test có schema riêng). Không đặt thì dùng schema mặc định.
+const store = await new Store(process.env.DATABASE_URL, {
+  schema: process.env.DB_SCHEMA,
+}).init();
 const rooms = new RoomManager();
 setInterval(() => rooms.sweep(), 10 * 60 * 1000).unref?.();
 
@@ -117,6 +121,12 @@ wss.on('connection', (ws) => {
   let msgCount = 0;
   const rateTimer = setInterval(() => { msgCount = 0; }, 1000);
 
+  // Xử lý tin nhắn phải chờ CSDL, nên nối chúng thành một chuỗi: gói tin sau
+  // chỉ chạy khi gói trước xong. Nếu để chạy chồng nhau thì client gửi liền
+  // `auth` rồi `join-tier` sẽ bị báo "cần đăng nhập" — vì lệnh thứ hai bắt đầu
+  // trước khi lệnh đăng nhập kịp gán phiên.
+  let chuoiXuLy = Promise.resolve();
+
   ws.on('message', (raw) => {
     if (++msgCount > 25) {
       send(ws, { t: 'error', message: 'Gửi quá nhanh, chậm lại giúp mình.' });
@@ -129,11 +139,11 @@ wss.on('connection', (ws) => {
       send(ws, { t: 'error', message: 'Gói tin không hợp lệ' });
       return;
     }
-    try {
-      handleMessage(ws, session, msg);
-    } catch (err) {
-      send(ws, { t: 'error', message: err?.message ?? 'Có lỗi xảy ra' });
-    }
+    chuoiXuLy = chuoiXuLy
+      .then(() => handleMessage(ws, session, msg))
+      .catch((err) => {
+        send(ws, { t: 'error', message: err?.message ?? 'Có lỗi xảy ra' });
+      });
   });
 
   ws.on('close', () => {
@@ -162,7 +172,7 @@ heartbeat.unref?.();
 
 /* ------------------------------------------------------------------ */
 
-function handleMessage(ws, session, msg) {
+async function handleMessage(ws, session, msg) {
   switch (msg.t) {
     case 'ping':
       send(ws, { t: 'pong', ts: Date.now() });
@@ -171,32 +181,32 @@ function handleMessage(ws, session, msg) {
     /* ------------- TÀI KHOẢN ------------- */
 
     case 'register': {
-      const account = store.register(msg.username, msg.password, msg.displayName);
-      finishAuth(ws, session, account);
+      const account = await store.register(msg.username, msg.password, msg.displayName);
+      await finishAuth(ws, session, account);
       return;
     }
 
     case 'login': {
-      const account = store.login(msg.username, msg.password);
-      finishAuth(ws, session, account);
+      const account = await store.login(msg.username, msg.password);
+      await finishAuth(ws, session, account);
       return;
     }
 
     case 'auth': {
-      const account = store.resolveSession(msg.sessionToken);
+      const account = await store.resolveSession(msg.sessionToken);
       if (!account) throw new Error('Phiên đăng nhập đã hết hạn, hãy đăng nhập lại');
       session.account = account;
       send(ws, {
         t: 'auth-ok',
         account,
-        checkin: store.getCheckinCard(account.id),
+        checkin: await store.getCheckinCard(account.id),
       });
-      sendLobby(ws, session);
+      await sendLobby(ws, session);
       return;
     }
 
     case 'logout': {
-      if (msg.sessionToken) store.destroySession(msg.sessionToken);
+      if (msg.sessionToken) await store.destroySession(msg.sessionToken);
       leaveCurrent(session);
       session.account = null;
       send(ws, { t: 'logged-out' });
@@ -207,8 +217,8 @@ function handleMessage(ws, session, msg) {
 
     case 'checkin': {
       const account = requireAuth(session);
-      const res = store.claimCheckin(account.id);
-      session.account = store.getAccount(account.id);
+      const res = await store.claimCheckin(account.id);
+      session.account = await store.getAccount(account.id);
       send(ws, {
         t: 'checkin-result',
         amount: res.amount,
@@ -216,7 +226,7 @@ function handleMessage(ws, session, msg) {
         card: res.card,
         account: session.account,
       });
-      sendLobby(ws, session);
+      await sendLobby(ws, session);
       return;
     }
 
@@ -224,12 +234,12 @@ function handleMessage(ws, session, msg) {
 
     case 'lobby': {
       requireAuth(session);
-      sendLobby(ws, session);
+      await sendLobby(ws, session);
       return;
     }
 
     case 'join-tier': {
-      const account = refreshAccount(session);
+      const account = await refreshAccount(session);
       const tier = getTier(msg.tierId);
       if (!tier) throw new Error('Không có mức bàn đó');
       if (account.balance < tier.minBalance) {
@@ -378,7 +388,7 @@ function handleMessage(ws, session, msg) {
         send(ws, room.stateFor(playerId));
       } else if (session.account) {
         // Chip đã đổi thì đẩy số dư mới xuống client
-        session.account = store.getAccount(session.account.id) ?? session.account;
+        session.account = await store.getAccount(session.account.id) ?? session.account;
         send(ws, { t: 'account', account: session.account });
       }
       return;
@@ -418,9 +428,9 @@ function handleMessage(ws, session, msg) {
       leaveCurrent(session);
       send(ws, { t: 'left' });
       if (session.account) {
-        session.account = store.getAccount(session.account.id) ?? session.account;
+        session.account = await store.getAccount(session.account.id) ?? session.account;
         send(ws, { t: 'account', account: session.account });
-        sendLobby(ws, session);
+        await sendLobby(ws, session);
       }
       return;
     }
@@ -432,25 +442,25 @@ function handleMessage(ws, session, msg) {
 
 /* ------------------------------------------------------------------ */
 
-function finishAuth(ws, session, account) {
+async function finishAuth(ws, session, account) {
   session.account = account;
-  const sessionToken = store.createSession(account.id);
+  const sessionToken = await store.createSession(account.id);
   send(ws, {
     t: 'auth-ok',
     account,
     sessionToken,
-    checkin: store.getCheckinCard(account.id),
+    checkin: await store.getCheckinCard(account.id),
   });
-  sendLobby(ws, session);
+  await sendLobby(ws, session);
 }
 
 /** Sảnh: số dư, thẻ điểm danh, và các mức bàn kèm trạng thái vào được hay không. */
-function sendLobby(ws, session) {
-  const account = refreshAccount(session);
+async function sendLobby(ws, session) {
+  const account = await refreshAccount(session);
   send(ws, {
     t: 'lobby',
     account,
-    checkin: store.getCheckinCard(account.id),
+    checkin: await store.getCheckinCard(account.id),
     startingBalance: STARTING_BALANCE,
     checkinReward: CHECKIN_REWARD,
     tiers: TIERS.map((tier) => {
@@ -475,9 +485,9 @@ function requireAuth(session) {
 }
 
 /** Đọc lại số dư từ CSDL — bản trong bộ nhớ có thể đã cũ sau một ván. */
-function refreshAccount(session) {
+async function refreshAccount(session) {
   const account = requireAuth(session);
-  session.account = store.getAccount(account.id) ?? account;
+  session.account = await store.getAccount(account.id) ?? account;
   return session.account;
 }
 

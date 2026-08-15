@@ -7,8 +7,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WebSocket } from 'ws';
 
-// Phải đặt trước khi nạp server để nó dùng CSDL trong bộ nhớ
-process.env.DB_FILE = ':memory:';
+// Phải đặt trước khi nạp server: mỗi file test dùng một schema Postgres riêng
+import { TEST_DB_URL, uniqueSchema } from './pg-helper.js';
+process.env.DATABASE_URL = TEST_DB_URL;
+const TEST_SCHEMA = uniqueSchema('e2e');
+process.env.DB_SCHEMA = TEST_SCHEMA;
 const { server, wss, rooms, store } = await import('../src/server/index.js');
 
 let baseUrl;
@@ -22,13 +25,15 @@ test.before(async () => {
   httpUrl = `http://127.0.0.1:${port}`;
 });
 
-test.after(() => {
+test.after(async () => {
   // Dọn sạch để tiến trình test thoát được: đồng hồ trong phòng và các
   // kết nối còn treo sẽ giữ event loop sống mãi.
   for (const room of [...rooms.rooms.values()]) room.destroy();
   for (const ws of wss.clients) ws.terminate();
   wss.close();
   server.close();
+  try { await store.pool.query(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`); } catch {}
+  await store.close();
 });
 
 /** Client thu nhỏ, đủ để kịch bản hoá một người chơi. */
@@ -77,8 +82,8 @@ class TestClient {
   }
 
   /** Nạp/đặt số dư trực tiếp qua CSDL, để dựng tình huống test. */
-  setBalance(amount) {
-    store.setBalance(this.accountId, amount);
+  async setBalance(amount) {
+    await store.setBalance(this.accountId, amount);
     return this;
   }
 
@@ -179,22 +184,22 @@ test('điểm danh qua mạng cộng 10k, lần thứ hai bị từ chối', asy
   c.send({ t: 'checkin' });
   await c.waitFor((x) => x.account.balance > truoc, { label: 'nhận thưởng' });
   assert.equal(c.account.balance, truoc + 10_000);
-  assert.equal(c.balanceInDb(), truoc + 10_000);
+  assert.equal(await c.balanceInDb(), truoc + 10_000);
 
   c.errors.length = 0;
   c.send({ t: 'checkin' });
   await c.waitFor((x) => x.errors.length > 0, { label: 'chặn điểm danh lần 2' });
   assert.match(c.errors[0], /đã điểm danh rồi/);
-  assert.equal(c.balanceInDb(), truoc + 10_000, 'số dư không được cộng thêm');
+  assert.equal(await c.balanceInDb(), truoc + 10_000, 'số dư không được cộng thêm');
   c.close();
 });
 
 test('spam điểm danh 10 lần liên tiếp vẫn chỉ nhận được 10k', async () => {
   const c = await newClient('Kẻ spam');
-  const truoc = c.balanceInDb();
+  const truoc = await c.balanceInDb();
   for (let i = 0; i < 10; i++) c.send({ t: 'checkin' });
   await sleep(400);
-  assert.equal(c.balanceInDb(), truoc + 10_000);
+  assert.equal(await c.balanceInDb(), truoc + 10_000);
   c.close();
 });
 
@@ -218,7 +223,7 @@ test('đăng nhập lại bằng session token thì giữ nguyên số dư', asy
 
 test('sảnh đánh dấu bàn nào vào được, bàn nào thiếu bao nhiêu xu', async () => {
   const c = await newClient('Dũng');
-  c.setBalance(7_000);
+  await c.setBalance(7_000);
   c.send({ t: 'lobby' });
   await c.waitFor((x) => x.lobby?.account.balance === 7_000, { label: 'sảnh cập nhật' });
 
@@ -234,7 +239,7 @@ test('sảnh đánh dấu bàn nào vào được, bàn nào thiếu bao nhiêu 
 
 test('số dư dưới mức tối thiểu thì KHÔNG vào được bàn', async () => {
   const c = await newClient('Em nghèo');
-  c.setBalance(4_999);
+  await c.setBalance(4_999);
   c.errors.length = 0;
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.waitFor((x) => x.errors.length > 0, { label: 'bị chặn vào bàn 5K' });
@@ -245,7 +250,7 @@ test('số dư dưới mức tối thiểu thì KHÔNG vào được bàn', asyn
 
 test('đủ đúng mức tối thiểu thì vào được, chip trên bàn bằng số dư', async () => {
   const c = await newClient('Vừa đủ');
-  c.setBalance(5_000);
+  await c.setBalance(5_000);
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.waitJoined();
   await c.waitState();
@@ -261,7 +266,7 @@ test('đủ đúng mức tối thiểu thì vào được, chip trên bàn bằn
 
 test('tiền sàn của bàn 20K đúng bằng 20.000', async () => {
   const c = await newClient('Đại gia');
-  c.setBalance(500_000);
+  await c.setBalance(500_000);
   c.send({ t: 'join-tier', tierId: 'muc20' });
   await c.waitState();
   assert.equal(c.state.ante, 20_000);
@@ -272,7 +277,7 @@ test('tiền sàn của bàn 20K đúng bằng 20.000', async () => {
 
 test('chơi xong một ván, số dư trong CSDL khớp với chip trên bàn', async () => {
   const c = await newClient('Người chơi');
-  c.setBalance(200_000);
+  await c.setBalance(200_000);
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.waitState();
 
@@ -292,8 +297,8 @@ test('chơi xong một ván, số dư trong CSDL khớp với chip trên bàn', 
   await sleep(500);
 
   const me = c.state.players.find((p) => p.id === c.joined.playerId);
-  assert.equal(c.balanceInDb(), me.chips, 'ví phải khớp chip trên bàn sau mỗi ván');
-  assert.notEqual(c.balanceInDb(), 200_000, 'số dư phải thay đổi sau khi cược');
+  assert.equal(await c.balanceInDb(), me.chips, 'ví phải khớp chip trên bàn sau mỗi ván');
+  assert.notEqual(await c.balanceInDb(), 200_000, 'số dư phải thay đổi sau khi cược');
   c.close();
 });
 
@@ -302,7 +307,7 @@ test('thua tới dưới mức tối thiểu thì bị mời ra khỏi bàn', as
   // một cách chắc chắn. Ở đây đặt thẳng số chip còn lại rồi chốt sổ, để kiểm
   // tra đúng cơ chế cần kiểm tra.
   const c = await newClient('Sắp cháy túi');
-  c.setBalance(50_000);
+  await c.setBalance(50_000);
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.waitJoined();
   await c.waitState();
@@ -311,20 +316,21 @@ test('thua tới dưới mức tối thiểu thì bị mời ra khỏi bàn', as
   const me = room.game.players.find((p) => p.id === c.joined.playerId);
   me.chips = 4_999; // vừa thua một ván lớn
   room.settleWallets();
+  await room.flushWrites();
 
   await c.waitFor((x) => x.messages.some((m) => m.t === 'kicked-from-table'), {
     label: 'thông báo bị mời ra',
   });
   const kick = c.messages.find((m) => m.t === 'kicked-from-table');
   assert.match(kick.reason, /không đủ mức tối thiểu/);
-  assert.equal(c.balanceInDb(), 4_999, 'số xu còn lại vẫn phải được giữ nguyên trong ví');
+  assert.equal(await c.balanceInDb(), 4_999, 'số xu còn lại vẫn phải được giữ nguyên trong ví');
   assert.equal(rooms.findSeat(c.accountId), null, 'ghế phải được nhả ra');
   c.close();
 });
 
 test('còn đúng mức tối thiểu thì vẫn được ngồi lại bàn', async () => {
   const c = await newClient('Vừa đủ trụ');
-  c.setBalance(50_000);
+  await c.setBalance(50_000);
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.waitJoined();
   await c.waitState();
@@ -333,19 +339,20 @@ test('còn đúng mức tối thiểu thì vẫn được ngồi lại bàn', as
   const me = room.game.players.find((p) => p.id === c.joined.playerId);
   me.chips = 5_000; // đúng bằng mức tối thiểu
   room.settleWallets();
+  await room.flushWrites();
   await sleep(150);
 
   assert.ok(
     !c.messages.some((m) => m.t === 'kicked-from-table'),
     'đủ đúng mức tối thiểu thì không được đuổi',
   );
-  assert.equal(c.balanceInDb(), 5_000);
+  assert.equal(await c.balanceInDb(), 5_000);
   c.close();
 });
 
 test('một tài khoản không ngồi được hai bàn cùng lúc', async () => {
   const c = await newClient('Hai tay');
-  c.setBalance(300_000);
+  await c.setBalance(300_000);
 
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.waitJoined();
@@ -375,8 +382,8 @@ test('một tài khoản không ngồi được hai bàn cùng lúc', async () =
 test('hai người cùng mức được xếp chung một bàn', async () => {
   const a = await newClient('Người A');
   const b = await newClient('Người B');
-  a.setBalance(150_000);
-  b.setBalance(150_000);
+  await a.setBalance(150_000);
+  await b.setBalance(150_000);
 
   a.send({ t: 'join-tier', tierId: 'muc100' });
   await a.waitJoined();
@@ -392,7 +399,7 @@ test('hai người cùng mức được xếp chung một bàn', async () => {
 
 test('bàn công khai không cho chia lại vốn', async () => {
   const c = await newClient('Chủ bàn');
-  c.setBalance(50_000);
+  await c.setBalance(50_000);
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.waitJoined();
   await c.waitState();
@@ -412,7 +419,7 @@ test('bàn công khai không cho chia lại vốn', async () => {
 
 test('bàn công khai không vào được bằng mã phòng', async () => {
   const a = await newClient('Người A');
-  a.setBalance(50_000);
+  await a.setBalance(50_000);
   a.send({ t: 'join-tier', tierId: 'muc5' });
   await a.waitJoined();
 
@@ -426,7 +433,7 @@ test('bàn công khai không vào được bằng mã phòng', async () => {
 
 test('phòng riêng vẫn dùng chip vui, không đụng tới ví', async () => {
   const c = await newClient('Chơi vui');
-  const viTruoc = c.balanceInDb();
+  const viTruoc = await c.balanceInDb();
   c.send({ t: 'create', bots: 2, config: { startChips: 500, ante: 10 } });
   await c.waitState();
 
@@ -436,7 +443,7 @@ test('phòng riêng vẫn dùng chip vui, không đụng tới ví', async () =>
 
   c.send({ t: 'start' });
   await sleep(1500);
-  assert.equal(c.balanceInDb(), viTruoc, 'ví không được thay đổi ở phòng riêng');
+  assert.equal(await c.balanceInDb(), viTruoc, 'ví không được thay đổi ở phòng riêng');
   c.close();
 });
 

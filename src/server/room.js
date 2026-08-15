@@ -117,8 +117,10 @@ export class Room {
     let chips;
     if (this.walletMode) {
       if (!account) throw new Error('Bàn này cần đăng nhập');
-      const balance = this.store.getBalance(account.id);
-      if (balance === null) throw new Error('Không tìm thấy tài khoản');
+      // Số dư do index.js đọc mới từ CSDL ngay trước khi gọi hàm này. Không tự
+      // đọc ở đây để giữ hàm đồng bộ — logic ván bài không được chờ mạng.
+      const balance = account.balance;
+      if (typeof balance !== 'number') throw new Error('Không đọc được số dư');
       if (balance < this.tier.minBalance) {
         throw new Error(
           `Bàn ${this.tier.label} cần tối thiểu ${fmt(this.tier.minBalance)} xu, bạn đang có ${fmt(balance)} xu`,
@@ -385,6 +387,26 @@ export class Room {
   /*  VÍ XU (chỉ bàn công khai)                                        */
   /* ---------------------------------------------------------------- */
 
+  /**
+   * Xếp một thao tác ghi CSDL vào hàng đợi của phòng.
+   *
+   * Ghi vào Postgres là bất đồng bộ, nhưng luồng ván bài thì đồng bộ (chạy từ
+   * đồng hồ đếm lượt). Nối các lần ghi thành một chuỗi để chúng luôn xảy ra
+   * đúng thứ tự phát sinh — nếu bắn song song, hai lần cập nhật số dư của cùng
+   * một người có thể về đích ngược thứ tự và ghi đè lẫn nhau.
+   */
+  queueWrite(fn) {
+    this.writeChain = (this.writeChain ?? Promise.resolve())
+      .then(fn)
+      .catch((err) => console.error('Lỗi ghi số dư:', err?.message ?? err));
+    return this.writeChain;
+  }
+
+  /** Chờ mọi thao tác ghi đang xếp hàng hoàn tất. Dùng trong test. */
+  flushWrites() {
+    return this.writeChain ?? Promise.resolve();
+  }
+
   /** Chép chip trên bàn của một người về số dư tài khoản. */
   syncOneWallet(playerId) {
     if (!this.walletMode) return;
@@ -392,11 +414,8 @@ export class Room {
     if (!accountId) return;
     const p = getPlayer(this.game, playerId);
     if (!p) return;
-    try {
-      this.store.setBalance(accountId, p.chips);
-    } catch (err) {
-      console.error('Không ghi được số dư', accountId, err.message);
-    }
+    const chips = p.chips;
+    this.queueWrite(() => this.store.setBalance(accountId, chips));
   }
 
   /**
