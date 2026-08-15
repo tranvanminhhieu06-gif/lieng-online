@@ -279,6 +279,56 @@
     to{ transform:translateY(0) rotate(0) scale(1); opacity:1; }
   }
 
+  /* ---- Chia bài: lá bay từ giữa bàn ra từng ghế ---- */
+  .card.dang-chia{ animation:bayRa .46s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes bayRa{
+    0%{ transform:translate(var(--dx,0), var(--dy,0)) scale(.35) rotate(-25deg); opacity:0; }
+    45%{ opacity:1; }
+    100%{ transform:translate(0,0) scale(1) rotate(0); opacity:1; }
+  }
+
+  /* ---- Ngửa bài cuối ván: từng người lật lần lượt ---- */
+  .card.ngua-bai{ animation:ngua .5s cubic-bezier(.34,1.4,.5,1) both; }
+  @keyframes ngua{
+    0%{ transform:rotateY(90deg) scale(.85); opacity:.3; }
+    60%{ transform:rotateY(-14deg) scale(1.1); opacity:1; }
+    100%{ transform:rotateY(0) scale(1); }
+  }
+
+  /* ---- Chip vừa được ăn thì nảy lên và loé vàng ---- */
+  .seat-chips{ transition:color .3s ease, background .3s ease; }
+  .seat-chips.an-tien{ animation:anTien .7s ease; }
+  @keyframes anTien{
+    0%{ transform:scale(1); }
+    30%{ transform:scale(1.3); background:rgba(240,205,122,.4); color:#fff6dd; }
+    100%{ transform:scale(1); }
+  }
+
+  /* ---- Đồng xu rơi vào hũ ---- */
+  .coin.roi-xuong{ animation:roiVaoHu .38s cubic-bezier(.3,1.5,.5,1) both; }
+  @keyframes roiVaoHu{
+    from{ transform:translateY(-42px) scale(.6); opacity:0; }
+    to{ transform:translateY(0) scale(1); opacity:1; }
+  }
+
+  /* ---- Ghế: vào bàn, rời bàn, tới lượt ---- */
+  .seat{ transition:left .45s cubic-bezier(.4,0,.2,1), top .45s cubic-bezier(.4,0,.2,1),
+                    box-shadow .25s ease, background .25s ease, opacity .3s ease, transform .3s ease; }
+  .seat.joining{ animation:gheVao .45s cubic-bezier(.34,1.4,.5,1) both; }
+  @keyframes gheVao{
+    from{ transform:translate(-50%,-50%) scale(.6); opacity:0; }
+    to{ transform:translate(-50%,-50%) scale(1); opacity:1; }
+  }
+  .seat.leaving{ opacity:0; transform:translate(-50%,-50%) scale(.7); pointer-events:none; }
+  .seat.turn{ animation:toiLuot 2s ease-in-out infinite; }
+  @keyframes toiLuot{
+    0%,100%{ box-shadow:0 0 0 2px var(--gold-bright), 0 0 18px rgba(240,205,122,.35); }
+    50%{ box-shadow:0 0 0 2px var(--gold-bright), 0 0 30px rgba(240,205,122,.7); }
+  }
+
+  /* ---- Hũ tiền ---- */
+  .pot-total{ transition:transform .25s ease, box-shadow .25s ease; }
+
   /* Lá bài của mình chưa lật — bấm vào để mở */
   .card.flippable{ cursor:pointer; animation:none; }
   .card.flippable::before{
@@ -300,10 +350,11 @@
     55%{ transform:rotateY(-12deg) scale(1.08); }
     100%{ transform:rotateY(0) scale(1); }
   }
-  .flip-hint{
-    font-size:10.5px; color:var(--gold-bright); font-weight:600; min-height:13px;
-    letter-spacing:.02em;
+  .hand-label.nhac-mo{
+    color:var(--gold-bright); font-weight:600; letter-spacing:.02em;
+    animation:nhacMo 1.8s ease-in-out infinite;
   }
+  @keyframes nhacMo{ 0%,100%{ opacity:.75; } 50%{ opacity:1; } }
   .seat.me .card{ width:52px; height:74px; font-size:14px; }
   .seat.me .card .suit-big{ font-size:20px; }
 
@@ -593,7 +644,9 @@
     <div class="pill"><span class="dot" id="connDot"></span><span id="connText">đã kết nối</span></div>
     <div class="pill" id="pillRound">Ván <b id="txtRound">0</b></div>
     <div class="pill" id="pillTier" style="display:none;"><b id="txtTier"></b></div>
-    <div class="pill">Xu <b id="gameBalance">0</b></div>
+    <div class="pill" id="pillWallet" title="Gốc: tiền lúc ngồi vào bàn · Bàn: chip đang cầm">
+      <span id="walletText">Xu <b id="gameBalance">0</b></span>
+    </div>
     <div class="spacer"></div>
     <button class="icon-btn" id="btnChat" title="Chat">💬</button>
     <button class="icon-btn" id="btnLog" title="Diễn biến ván">📋</button>
@@ -708,6 +761,7 @@ const ui = {
   ws: null,
   connected: false,
   account: null,
+  wallet: null,           // { tienGoc, chip, laiLo } khi đang ngồi bàn công khai
   sessionToken: null,
   checkin: null,
   authMode: 'login',
@@ -723,7 +777,11 @@ const ui = {
   names: {},
   soundOn: true,
   autoFlip: false,          // tự mở bài như kiểu cũ
-  flipAnim: new Set(),      // chỉ số lá vừa lật, để chạy hoạt ảnh đúng một lần
+  flipAnim: new Set(),      // chỉ số lá MÌNH vừa lật
+  othersFlip: {},           // lá người khác vừa lật, để hiện họ đang xem bài
+  showdownOrder: [],        // thứ tự ngửa bài cuối ván, tạo hiệu ứng dây chuyền
+  chipTruoc: {},            // chip lần vẽ trước, để chạy số đếm dần
+  potTruoc: undefined,
   raiseTarget: 0,
   reconnectDelay: 800,
   manualLeave: false,
@@ -755,6 +813,14 @@ const sfx = {
   win(){ [523,659,784,1046].forEach((f,i)=>tone(f,.22,'sine',.05,i*.09)); },
   turn(){ tone(700,.09,'sine',.05); tone(940,.09,'sine',.04,.1); },
   flip(){ tone(420,.07,'triangle',.05); tone(680,.09,'triangle',.04,.05); },
+  flipNhe(){ tone(340,.05,'triangle',.022); },
+  // Chia bài: mỗi lá một tiếng "xoẹt", lệch nhau đúng nhịp với hoạt ảnh
+  chiaBai(soNguoi){
+    const soLa = Math.max(1, soNguoi) * 3;
+    for(let i = 0; i < soLa; i++){
+      tone(560 + (i % 3) * 45, .045, 'triangle', .035, i * 0.075);
+    }
+  },
 };
 
 /* ================= KẾT NỐI ================= */
@@ -843,9 +909,11 @@ function handle(msg){
       showScreen('auth');
       break;
     case 'kicked-from-table':
+      baoChotSo(msg.cashOut);
       ui.code = null;
       ui.token = null;
       ui.playerId = null;
+      ui.wallet = null;
       try{ localStorage.removeItem(STORE_KEY); }catch{}
       sendRaw({t:'leave'}); // dọn nốt phiên phía server
       showScreen('lobby');
@@ -875,6 +943,7 @@ function handle(msg){
     case 'state':
       ui.room = msg.room;
       ui.state = msg.state;
+      ui.wallet = msg.wallet ?? null;
       ui.turnDeadline = msg.turnDeadline;
       ui.clockSkew = msg.serverTime ? (Date.now() - msg.serverTime) : 0;
       ui.isHost = msg.room.hostId === ui.playerId;
@@ -897,11 +966,26 @@ function handle(msg){
       else toast(msg.message);
       break;
     case 'left':
+      baoChotSo(msg.cashOut);
       ui.code = null;
+      ui.wallet = null;
       try{ localStorage.removeItem(STORE_KEY); }catch{}
       history.replaceState(null, '', '/');
       showScreen('lobby');
       break;
+  }
+}
+
+/** Thông báo chốt sổ khi rời bàn: mang vào bao nhiêu, ra về bao nhiêu. */
+function baoChotSo(w){
+  if(!w) return;
+  if(w.laiLo > 0){
+    toast(`Rời bàn với ${fmtXu(w.chip)} xu — lãi ${fmtXu(w.laiLo)}. Đã cộng vào tiền gốc.`);
+    sfx.win();
+  } else if(w.laiLo < 0){
+    toast(`Rời bàn với ${fmtXu(w.chip)} xu — lỗ ${fmtXu(-w.laiLo)} so với ${fmtXu(w.tienGoc)} lúc vào.`);
+  } else {
+    toast(`Rời bàn hoà vốn, vẫn ${fmtXu(w.chip)} xu.`);
   }
 }
 
@@ -983,7 +1067,7 @@ function renderTiers(tiers){
         <div class="meta">
           Tiền sàn ${fmtXu(t.ante)} · cần tối thiểu ${fmtXu(t.minBalance)} xu
           ${t.canAfford
-            ? (t.playersOnline ? ` · <b style="color:#8ee0ac">${t.playersOnline} người đang chơi</b>` : ' · chưa có ai, có bot chờ sẵn')
+            ? (t.playersOnline ? ` · <b style="color:#8ee0ac">${t.playersOnline} người đang chơi</b>` : ' · chưa có ai, vào trước rồi rủ bạn')
             : ` · <span class="warn">còn thiếu ${fmtXu(t.shortBy)} xu</span>`}
         </div>
       </div>
@@ -1008,8 +1092,10 @@ function applyEvent(e){
       logLine(`— Ván ${e.roundNum}: tiền sàn ${fmtXu(e.ante)} —`);
       break;
     case 'deal':
-      sfx.deal();
+      sfx.chiaBai(e.playerIds?.length ?? 3);
       ui.flipAnim.clear();
+      ui.othersFlip = {};
+      ui.showdownOrder = [];
       // Ai chọn "tự mở bài" thì lật hết ngay, khỏi bấm ba lần mỗi ván
       if(ui.autoFlip && !ui.spectating) sendRaw({t:'flip', all:true});
       break;
@@ -1017,6 +1103,10 @@ function applyEvent(e){
       if(e.playerId === ui.playerId){
         e.indexes.forEach((i) => ui.flipAnim.add(i));
         sfx.flip();
+      } else {
+        // Thấy đối thủ đang xem bài tới đâu (vẫn không thấy lá gì)
+        ui.othersFlip[e.playerId] = e.indexes;
+        sfx.flipNhe();
       }
       break;
     case 'action': {
@@ -1036,7 +1126,9 @@ function applyEvent(e){
       if(e.playerId === ui.playerId) sfx.turn();
       break;
     case 'showdown':
+      ui.showdownOrder = (e.reveals ?? []).map((r) => r.playerId);
       if(e.reveals?.length){
+        e.reveals.forEach((_, i) => setTimeout(() => sfx.flip(), i * 260));
         logLine('Ngửa bài: ' + e.reveals.map(r => `${nameOf(r.playerId)} — ${r.hand.label}`).join(' · '));
       }
       break;
@@ -1100,15 +1192,110 @@ function orderedPlayers(){
 }
 
 function cardHTML(card, opts = {}){
+  const doTre = opts.delay ? ` style="animation-delay:${opts.delay}ms"` : '';
+  const hieuUng = (opts.dealing ? ' dang-chia' : '')
+    + (opts.justFlipped ? ' just-flipped' : '')
+    + (opts.showdown ? ' ngua-bai' : '');
+
   if(!card){
-    const cls = 'card card-back' + (opts.flippable ? ' flippable' : '');
+    const cls = 'card card-back' + (opts.flippable ? ' flippable' : '') + hieuUng;
     const attr = opts.flippable ? ` data-flip="${opts.index}" title="Bấm để mở lá này"` : '';
-    return `<div class="${cls}"${attr}></div>`;
+    return `<div class="${cls}"${attr}${doTre}></div>`;
   }
   const red = RED.has(card.suit) ? 'red' : '';
   const label = RANK_LABELS[card.rank];
-  const anim = opts.justFlipped ? ' just-flipped' : '';
-  return `<div class="card ${red}${anim}"><div>${label}</div><div class="suit-big">${card.suit}</div><div class="bl">${label}</div></div>`;
+  return `<div class="card ${red}${hieuUng}"${doTre}><div>${label}</div><div class="suit-big">${card.suit}</div><div class="bl">${label}</div></div>`;
+}
+
+/* ================= VẼ BÀN ================= */
+
+/** Chỉ ghi vào DOM khi giá trị thật sự đổi — tránh nhấp nháy và mất hoạt ảnh. */
+function setText(el, giaTri){
+  if(el && el.textContent !== String(giaTri)) el.textContent = giaTri;
+}
+function setHTML(el, giaTri){
+  if(el && el.innerHTML !== giaTri) el.innerHTML = giaTri;
+}
+function setClass(el, ten, bat){
+  if(el) el.classList.toggle(ten, !!bat);
+}
+
+/** Số tiền đếm tăng/giảm dần thay vì nhảy cóc. */
+function chaySo(el, tuGiaTri, toiGiaTri, thoiGian = 420){
+  if(!el) return;
+  if(tuGiaTri === toiGiaTri){ setText(el, fmtXu(toiGiaTri)); return; }
+  const batDau = performance.now();
+  cancelAnimationFrame(el._raf);
+  const buoc = (luc) => {
+    const t = Math.min(1, (luc - batDau) / thoiGian);
+    const muot = 1 - Math.pow(1 - t, 3);
+    setText(el, fmtXu(Math.round(tuGiaTri + (toiGiaTri - tuGiaTri) * muot)));
+    if(t < 1) el._raf = requestAnimationFrame(buoc);
+  };
+  el._raf = requestAnimationFrame(buoc);
+}
+
+/** Dựng khung một ghế đúng một lần, các lần sau chỉ cập nhật nội dung. */
+function dungGhe(felt, p){
+  const el = document.createElement('div');
+  el.id = 'seat-' + p.id;
+  el.className = 'seat';
+  el.innerHTML = `
+    <div class="seat-name"></div>
+    <div class="seat-chips"></div>
+    <div class="cards-row"></div>
+    <div class="hand-label"></div>
+    <div class="seat-bet"></div>
+    <div class="timer-bar"><i></i></div>`;
+  felt.appendChild(el);
+  return el;
+}
+
+/**
+ * Vẽ hàng bài của một ghế.
+ *
+ * Chỉ dựng lại DOM khi bộ bài THẬT SỰ đổi (số lá, lá nào đã lật). Nếu dựng lại
+ * mỗi lần nhận state thì hoạt ảnh bị khởi động lại liên tục, nhìn như giật lag.
+ */
+function veBai(el, p, st, isMe){
+  const hang = el.querySelector('.cards-row');
+  const conCheDay = isMe && st.phase === 'betting' && !p.folded;
+
+  // Chữ ký của bộ bài — đổi thì mới vẽ lại
+  const kyHieu = [
+    p.cardCount,
+    conCheDay ? 'c' : '-',
+    ...Array.from({length: p.cardCount ?? 0}, (_, k) => {
+      const la = p.cards?.[k];
+      return la ? `${la.rank}${la.suit}` : 'x';
+    }),
+  ].join('|');
+  if(hang.dataset.ky === kyHieu) return;
+
+  const laMoiChia = hang.dataset.ky === undefined || !hang.dataset.ky.startsWith(String(p.cardCount));
+  const thuTuNgua = ui.showdownOrder.indexOf(p.id);
+
+  hang.innerHTML = Array.from({length: p.cardCount ?? 0}, (_, k) => {
+    const la = p.cards?.[k];
+    const vuaLat = (isMe && ui.flipAnim.has(k)) || (!isMe && ui.othersFlip[p.id]?.includes(k));
+    return cardHTML(la, {
+      flippable: conCheDay && !la,
+      index: k,
+      justFlipped: vuaLat,
+      // Chia bài: lá bay từ giữa bàn ra, lệch nhau một nhịp
+      dealing: laMoiChia && st.phase === 'betting',
+      delay: laMoiChia ? k * 90 : (thuTuNgua >= 0 ? thuTuNgua * 260 + k * 80 : 0),
+      // Ngửa bài cuối ván: mỗi người lật lần lượt cho hồi hộp
+      showdown: thuTuNgua >= 0 && !!la && !isMe,
+    });
+  }).join('');
+  hang.dataset.ky = kyHieu;
+
+  if(conCheDay){
+    hang.querySelectorAll('.card[data-flip]').forEach((c) => {
+      c.onclick = () => sendRaw({t:'flip', index: +c.dataset.flip});
+    });
+  }
 }
 
 function render(){
@@ -1118,87 +1305,113 @@ function render(){
   const felt = $('felt');
   const players = orderedPlayers();
   const pos = seatPositions(Math.max(players.length, 1), felt);
+  const feltRect = { w: felt.clientWidth || 900, h: felt.clientHeight || 500 };
 
-  // Xoá ghế cũ không còn
-  const alive = new Set(players.map(p => 'seat-' + p.id));
-  felt.querySelectorAll('.seat').forEach(el => { if(!alive.has(el.id)) el.remove(); });
+  // Xoá ghế của người đã rời bàn
+  const conLai = new Set(players.map(p => 'seat-' + p.id));
+  felt.querySelectorAll('.seat').forEach(el => {
+    if(!conLai.has(el.id)){
+      el.classList.add('leaving');
+      setTimeout(() => el.remove(), 300);
+    }
+  });
 
   players.forEach((p, i) => {
     let el = document.getElementById('seat-' + p.id);
-    if(!el){
-      el = document.createElement('div');
-      el.id = 'seat-' + p.id;
-      el.className = 'seat';
-      felt.appendChild(el);
-    }
+    const vuaVao = !el;
+    if(vuaVao) el = dungGhe(felt, p);
+
     el.style.left = pos[i].x + '%';
     el.style.top = pos[i].y + '%';
+    // Toạ độ tương đối so với tâm bàn — dùng cho hoạt ảnh chia bài và bay chip
+    el.style.setProperty('--dx', `${(50 - pos[i].x) / 100 * feltRect.w}px`);
+    el.style.setProperty('--dy', `${(50 - pos[i].y) / 100 * feltRect.h}px`);
 
     const isMe = p.id === ui.playerId;
     const online = ui.room?.online?.[p.id];
     const isTurn = st.turnPlayerId === p.id;
     const isWinner = st.lastResult?.winnerIds?.includes(p.id) && st.phase !== 'betting';
 
-    el.className = 'seat'
-      + (isMe ? ' me' : '')
-      + (isTurn ? ' turn' : '')
-      + (p.folded ? ' folded' : '')
-      + (p.eliminated ? ' eliminated' : '')
-      + (!p.isBot && online === false ? ' offline' : '')
-      + (isWinner ? ' winner' : '');
+    setClass(el, 'me', isMe);
+    setClass(el, 'turn', isTurn);
+    setClass(el, 'folded', p.folded);
+    setClass(el, 'eliminated', p.eliminated);
+    setClass(el, 'offline', !p.isBot && online === false);
+    setClass(el, 'winner', isWinner);
+    setClass(el, 'joining', vuaVao);
+    if(vuaVao) setTimeout(() => el.classList.remove('joining'), 500);
 
     const tags = [];
-    if(p.id === ui.room?.hostId) tags.push('<span class="tag">CHỦ</span>');
+    if(p.id === ui.room?.hostId && !ui.room?.walletMode) tags.push('<span class="tag">CHỦ</span>');
     if(p.isBot) tags.push('<span class="tag bot">BOT</span>');
     if(!p.isBot && online === false) tags.push('<span class="tag off">RỚT</span>');
     if(p.allIn) tags.push('<span class="tag">TẤT TAY</span>');
     if(st.dealerId === p.id) tags.push('<span class="tag">D</span>');
+    setHTML(el.querySelector('.seat-name'), esc(p.name) + tags.join(''));
 
-    // Lá của mình chưa lật thì bấm được; của người khác thì không.
-    const conCheDay = isMe && st.phase === 'betting' && !p.folded;
-    const cards = p.cardCount
-      ? Array.from({length: p.cardCount}, (_, k) => cardHTML(p.cards?.[k], {
-          flippable: conCheDay && !p.cards?.[k],
-          index: k,
-          justFlipped: isMe && ui.flipAnim.has(k),
-        })).join('')
-      : '';
+    // Chip: đếm dần cho thấy được ăn/mất bao nhiêu
+    const oChip = el.querySelector('.seat-chips');
+    const chipCu = ui.chipTruoc[p.id];
+    oChip.title = fmtDayDu(p.chips) + ' xu';
+    if(chipCu === undefined || chipCu === p.chips) setText(oChip, fmtXu(p.chips));
+    else chaySo(oChip, chipCu, p.chips);
+    if(chipCu !== undefined && p.chips > chipCu){
+      oChip.classList.remove('an-tien'); void oChip.offsetWidth; oChip.classList.add('an-tien');
+    }
+    ui.chipTruoc[p.id] = p.chips;
+
+    veBai(el, p, st, isMe);
 
     const chuaMo = isMe && p.cardCount ? p.cardCount - (p.revealedCount ?? 0) : 0;
+    const conCheDay = isMe && st.phase === 'betting' && !p.folded;
+    // Giữ nguyên class .hand-label (dùng để tìm lại phần tử), chỉ bật/tắt
+    // biến thể .nhac-mo. Thay hẳn className sẽ làm querySelector lần sau không
+    // tìm thấy gì và render vỡ giữa chừng.
+    const nhan = el.querySelector('.hand-label');
+    const dangNhac = conCheDay && chuaMo > 0;
+    setClass(nhan, 'nhac-mo', dangNhac);
+    setText(nhan, dangNhac ? `Bấm để mở — còn ${chuaMo} lá` : (p.handLabel ?? ''));
 
-    el.innerHTML = `
-      <div class="seat-name">${esc(p.name)}${tags.join('')}</div>
-      <div class="seat-chips" title="${fmtDayDu(p.chips)} xu">${fmtXu(p.chips)}</div>
-      <div class="cards-row">${cards}</div>
-      ${conCheDay && chuaMo > 0
-        ? `<div class="flip-hint">Bấm để mở — còn ${chuaMo} lá</div>`
-        : `<div class="hand-label">${p.handLabel ? esc(p.handLabel) : ''}</div>`}
-      <div class="seat-bet">${p.betThisRound > 0 ? 'cược ' + fmtXu(p.betThisRound) : ''}</div>
-      ${isTurn ? '<div class="timer-bar"><i id="tb-'+p.id+'"></i></div>' : ''}
-    `;
-
-    if(conCheDay){
-      el.querySelectorAll('.card[data-flip]').forEach((c) => {
-        c.onclick = () => sendRaw({t:'flip', index: +c.dataset.flip});
-      });
-    }
+    setText(el.querySelector('.seat-bet'), p.betThisRound > 0 ? 'cược ' + fmtXu(p.betThisRound) : '');
+    el.querySelector('.timer-bar').style.visibility = isTurn ? 'visible' : 'hidden';
   });
 
   ui.flipAnim.clear();
+  ui.othersFlip = {};
 
-  // Hũ
-  $('potTotal').textContent = fmtXu(st.pot);
-  const coins = Math.max(0, Math.min(8, Math.round(st.pot / Math.max(1, st.ante))));
-  $('coinStack').innerHTML = Array.from({length: coins}).map(() => '<div class="coin"></div>').join('');
-  $('txtRound').textContent = st.roundNum;
-  $('phaseBadge').textContent = phaseText(st.phase);
+  // Hũ — cũng đếm dần
+  const oHu = $('potTotal');
+  if(ui.potTruoc === undefined || ui.potTruoc === st.pot) setText(oHu, fmtXu(st.pot));
+  else chaySo(oHu, ui.potTruoc, st.pot);
+  ui.potTruoc = st.pot;
 
-  // Ở bàn công khai, chip trên bàn CHÍNH LÀ ví — hiện luôn con số đó cho khớp.
+  const soCoin = Math.max(0, Math.min(8, Math.round(st.pot / Math.max(1, st.ante))));
+  const stack = $('coinStack');
+  if(stack.children.length !== soCoin){
+    while(stack.children.length < soCoin){
+      const c = document.createElement('div');
+      c.className = 'coin roi-xuong';
+      stack.appendChild(c);
+    }
+    while(stack.children.length > soCoin) stack.removeChild(stack.lastChild);
+  }
+
+  setText($('txtRound'), st.roundNum);
+  setText($('phaseBadge'), phaseText(st.phase));
+
+  // Bàn công khai: hiện cả tiền gốc lúc ngồi vào lẫn chip đang cầm, kèm lãi/lỗ.
   const me = st.players.find((p) => p.id === ui.playerId);
-  if(ui.room?.walletMode && me){
-    $('gameBalance').textContent = fmtXu(me.chips);
+  if(ui.wallet){
+    const w = ui.wallet;
+    const dau = w.laiLo > 0 ? '+' : '';
+    const mau = w.laiLo > 0 ? '#8ee0ac' : w.laiLo < 0 ? '#ff9d9d' : '#a2977c';
+    setHTML($('walletText'),
+      `Gốc <b>${fmtXu(w.tienGoc)}</b> · Bàn <b>${fmtXu(w.chip)}</b>`
+      + (w.laiLo !== 0 ? ` <b style="color:${mau}">${dau}${fmtXu(w.laiLo)}</b>` : ''));
+  } else if(ui.room?.walletMode && me){
+    setHTML($('walletText'), `Bàn <b>${fmtXu(me.chips)}</b>`);
   } else if(ui.account){
-    $('gameBalance').textContent = fmtXu(ui.account.balance);
+    setHTML($('walletText'), `Xu <b>${fmtXu(ui.account.balance)}</b>`);
   }
 
   renderControls();
@@ -1258,9 +1471,13 @@ function renderControls(){
         ? `Đang chờ ${nameOf(st.turnPlayerId)}…`
         : 'Đang xử lý…';
     } else if(st.phase === 'waiting'){
-      $('callInfo').textContent = ui.isHost
-        ? 'Đủ người thì bấm "Bắt đầu ván".'
-        : 'Đang chờ chủ bàn bắt đầu…';
+      const soNguoi = st.players.filter((x) => !x.eliminated).length;
+      $('callInfo').textContent = ui.room?.walletMode
+        // Bàn công khai không có bot và tự chia ván khi đủ người
+        ? (soNguoi < 2
+            ? 'Đang chờ người chơi khác vào bàn… Chia link mời hoặc đợi một chút.'
+            : 'Sắp chia bài…')
+        : (ui.isHost ? 'Đủ người thì bấm "Bắt đầu ván".' : 'Đang chờ chủ bàn bắt đầu…');
     } else if(st.phase === 'roundOver'){
       $('callInfo').textContent = ui.room?.config?.autoStart
         ? 'Hết ván — ván mới sắp bắt đầu…'

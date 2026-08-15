@@ -84,6 +84,29 @@ class C {
 const newC = async () => (await new C().open()).auth();
 
 /**
+ * Người chơi phụ: vào cùng bàn rồi cứ mở bài và theo tới cùng.
+ *
+ * Bàn công khai không còn bot, nên phải có đủ hai người thật thì ván mới bắt
+ * đầu. Người phụ này chỉ để ván chạy được, không kiểm tra gì.
+ */
+async function nguoiChoiPhu(tierId, soDu = 5_000_000) {
+  const c = await newC();
+  await store.setBalance(c.id, soDu);
+  c.send({ t: 'join-tier', tierId });
+  await c.wait((x) => x.joined, { label: 'người phụ vào bàn' });
+
+  const nhip = setInterval(() => {
+    if (!c.state?.legal) return;
+    c.send({ t: 'flip', all: true });
+    c.send({ t: 'action', action: 'call', actionSeq: c.state.legal.actionSeq });
+  }, 120);
+
+  const dongGoc = c.close.bind(c);
+  c.close = () => { clearInterval(nhip); dongGoc(); };
+  return c;
+}
+
+/**
  * Chơi trọn một ván, đo theo trạng thái THẬT của server.
  *
  * Không dùng `c.state.phase` để biết ván đã xong chưa: trạng thái client nhận
@@ -118,6 +141,7 @@ async function choiHetVan(c, room) {
 test('tiền thắng/thua về đúng ví sau mỗi ván', async () => {
   const c = await newC();
   await store.setBalance(c.id, 200_000);
+  const phu = await nguoiChoiPhu('muc5');
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.wait((x) => x.joined, { label: 'vào bàn' });
 
@@ -127,7 +151,7 @@ test('tiền thắng/thua về đúng ví sau mỗi ván', async () => {
   const chip = room.game.players.find((p) => p.id === c.joined.playerId).chips;
   assert.equal(await c.db(), chip, 'ví phải khớp chip trên bàn');
   assert.notEqual(await c.db(), 200_000, 'số dư phải đổi sau khi cược');
-  c.close();
+  c.close(); phu.close();
 });
 
 test('chơi liên tiếp nhiều ván, ví và chip không bao giờ trôi khỏi nhau', async () => {
@@ -135,6 +159,7 @@ test('chơi liên tiếp nhiều ván, ví và chip không bao giờ trôi khỏ
   // sai mốc là các ván sau lệch theo và càng lúc càng xa.
   const c = await newC();
   await store.setBalance(c.id, 500_000);
+  const phu = await nguoiChoiPhu('muc5');
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.wait((x) => x.joined, { label: 'vào bàn' });
   const room = rooms.get(c.joined.code);
@@ -159,12 +184,92 @@ test('chơi liên tiếp nhiều ván, ví và chip không bao giờ trôi khỏ
       await sleep(200);
     }
   }
-  c.close();
+  c.close(); phu.close();
+});
+
+test('tiền gốc đứng yên suốt phiên chơi, chip trên bàn thì chạy', async () => {
+  const c = await newC();
+  await store.setBalance(c.id, 300_000);
+  const phu = await nguoiChoiPhu('muc5');
+  c.send({ t: 'join-tier', tierId: 'muc5' });
+  await c.wait((x) => x.joined, { label: 'vào bàn' });
+  const room = rooms.get(c.joined.code);
+
+  // Chờ ván thật sự bắt đầu, tức là tiền sàn đã bị trừ
+  await c.wait((x) => x.state?.phase === 'betting', { timeout: 10000, label: 'ván bắt đầu' });
+  const dau = c.msgs.filter((m) => m.t === 'state' && m.wallet).at(-1).wallet;
+  assert.equal(dau.tienGoc, 300_000, 'tiền gốc là số dư lúc ngồi vào bàn');
+  assert.equal(dau.chip, 300_000 - 5_000, 'chip đã trừ tiền sàn');
+  assert.equal(dau.laiLo, -5_000);
+
+  // Chơi hai ván, tiền gốc phải không nhúc nhích
+  for (let van = 1; van <= 2; van++) {
+    await choiHetVan(c, room);
+    await c.wait((x) => x.msgs.filter((m) => m.t === 'state' && m.wallet).length > 0);
+    const w = c.msgs.filter((m) => m.t === 'state' && m.wallet).at(-1).wallet;
+    assert.equal(w.tienGoc, 300_000, `hết ván ${van}: tiền gốc phải đứng yên`);
+    assert.equal(w.laiLo, w.chip - w.tienGoc, `hết ván ${van}: lãi/lỗ phải khớp`);
+    if (van < 2) await sleep(300);
+  }
+  c.close(); phu.close();
+});
+
+test('rời bàn thì báo chốt sổ: mang vào bao nhiêu, ra về bao nhiêu', async () => {
+  const c = await newC();
+  await store.setBalance(c.id, 300_000);
+  const phu = await nguoiChoiPhu('muc5');
+  c.send({ t: 'join-tier', tierId: 'muc5' });
+  await c.wait((x) => x.joined, { label: 'vào bàn' });
+  const room = rooms.get(c.joined.code);
+  await choiHetVan(c, room);
+
+  const chipCuoi = room.game.players.find((p) => p.id === c.joined.playerId).chips;
+
+  c.msgs.length = 0;
+  c.send({ t: 'leave' });
+  await c.wait((x) => x.msgs.some((m) => m.t === 'left'), { label: 'rời bàn' });
+
+  const w = c.msgs.find((m) => m.t === 'left').cashOut;
+  assert.ok(w, 'phải kèm số liệu chốt sổ');
+  assert.equal(w.tienGoc, 300_000, 'tiền gốc lúc vào bàn');
+  assert.equal(w.chip, chipCuoi, 'chip lúc rời bàn');
+  assert.equal(w.laiLo, chipCuoi - 300_000, 'lãi/lỗ của cả phiên');
+
+  await c.wait((x) => x.msgs.some((m) => m.t === 'account'), { label: 'số dư mới' });
+  assert.equal(
+    c.msgs.find((m) => m.t === 'account').account.balance, chipCuoi,
+    'tiền gốc mới phải bằng chip mang ra',
+  );
+  c.close(); phu.close();
+});
+
+test('bị mời ra vì hết xu cũng kèm số liệu chốt sổ', async () => {
+  const c = await newC();
+  await store.setBalance(c.id, 50_000);
+  const phu = await nguoiChoiPhu('muc5');
+  c.send({ t: 'join-tier', tierId: 'muc5' });
+  await c.wait((x) => x.joined, { label: 'vào bàn' });
+  await c.wait((x) => x.state?.phase === 'betting', { timeout: 10000, label: 'ván bắt đầu' });
+
+  const room = rooms.get(c.joined.code);
+  const me = room.game.players.find((p) => p.id === c.joined.playerId);
+  me.chips = 1_000; // tụt xuống dưới mức tối thiểu của bàn 5K
+  room.settleWallets();
+  await room.flushWrites();
+
+  await c.wait((x) => x.msgs.some((m) => m.t === 'kicked-from-table'), { label: 'bị mời ra' });
+  const w = c.msgs.find((m) => m.t === 'kicked-from-table').cashOut;
+  assert.ok(w, 'phải kèm số liệu chốt sổ');
+  assert.equal(w.tienGoc, 50_000);
+  assert.equal(w.chip, 1_000);
+  assert.equal(w.laiLo, -49_000);
+  c.close(); phu.close();
 });
 
 test('rời bàn xong, số dư client nhận được là số dư ĐÃ chốt sổ', async () => {
   const c = await newC();
   await store.setBalance(c.id, 200_000);
+  const phu = await nguoiChoiPhu('muc5');
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.wait((x) => x.joined, { label: 'vào bàn' });
   const room = rooms.get(c.joined.code);
@@ -182,7 +287,7 @@ test('rời bàn xong, số dư client nhận được là số dư ĐÃ chốt 
     guiVeClient, chipSauVan,
     'số dư gửi về client phải là số đã chốt sổ, không phải số cũ trước ván',
   );
-  c.close();
+  c.close(); phu.close();
 });
 
 test('xu được cộng từ nơi khác lúc đang chơi thì không bị ván bài xoá mất', async () => {
@@ -193,6 +298,7 @@ test('xu được cộng từ nơi khác lúc đang chơi thì không bị ván 
   // Test đặt thẳng tình huống thay vì canh thời điểm, để không phụ thuộc may rủi.
   const c = await newC();
   await store.setBalance(c.id, 200_000);
+  const phu = await nguoiChoiPhu('muc5');
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.wait((x) => x.joined, { label: 'vào bàn' });
   await c.wait((x) => x.state?.phase === 'betting', { timeout: 10000, label: 'ván bắt đầu' });
@@ -220,5 +326,5 @@ test('xu được cộng từ nơi khác lúc đang chơi thì không bị ván 
     me.chips, await c.db(),
     'chip trên bàn phải được đồng bộ lại theo ví cho ván sau',
   );
-  c.close();
+  c.close(); phu.close();
 });

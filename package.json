@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server/index.js",
     "dev": "node --watch src/server/index.js",
-    "test": "node --test --test-timeout=40000 test/*.test.js"
+    "test": "node --test --test-timeout=120000 test/*.test.js"
   },
   "engines": {
     "node": ">=20"

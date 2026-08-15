@@ -278,6 +278,18 @@ test('tiền sàn của bàn 20K đúng bằng 20.000', async () => {
 test('chơi xong một ván, số dư trong CSDL khớp với chip trên bàn', async () => {
   const c = await newClient('Người chơi');
   await c.setBalance(200_000);
+
+  // Bàn công khai không còn bot, phải đủ hai người thật thì ván mới bắt đầu
+  const phu = await newClient('Người phụ');
+  await phu.setBalance(5_000_000);
+  phu.send({ t: 'join-tier', tierId: 'muc5' });
+  await phu.waitJoined();
+  const nhipPhu = setInterval(() => {
+    if (!phu.state?.legal) return;
+    phu.send({ t: 'flip', all: true });
+    phu.send({ t: 'action', action: 'call', actionSeq: phu.state.legal.actionSeq });
+  }, 120);
+
   c.send({ t: 'join-tier', tierId: 'muc5' });
   await c.waitState();
 
@@ -299,7 +311,8 @@ test('chơi xong một ván, số dư trong CSDL khớp với chip trên bàn', 
   const me = c.state.players.find((p) => p.id === c.joined.playerId);
   assert.equal(await c.balanceInDb(), me.chips, 'ví phải khớp chip trên bàn sau mỗi ván');
   assert.notEqual(await c.balanceInDb(), 200_000, 'số dư phải thay đổi sau khi cược');
-  c.close();
+  clearInterval(nhipPhu);
+  c.close(); phu.close();
 });
 
 test('thua tới dưới mức tối thiểu thì bị mời ra khỏi bàn', async () => {

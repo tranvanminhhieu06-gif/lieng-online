@@ -36,7 +36,7 @@ const fmt = (n) => Number(n).toLocaleString('vi-VN');
 export const ROOM_DEFAULTS = {
   ...DEFAULT_CONFIG,
   turnSeconds: 25,          // thời gian suy nghĩ mỗi lượt
-  nextRoundDelaySeconds: 6, // nghỉ giữa hai ván
+  nextRoundDelaySeconds: 4, // nghỉ giữa hai ván — đủ xem kết quả, không lê thê
   disconnectGraceSeconds: 90,
   autoStart: true,
   historyLimit: 50,
@@ -136,8 +136,12 @@ export class Room {
     this.tokens.set(token, id);
     if (account) {
       this.accountOf.set(id, account.id);
-      // Mốc để tính lãi/lỗ của ván: chip trên bàn được lấy ra từ số dư này
-      getPlayer(this.game, id).walletBase = chips;
+      const p = getPlayer(this.game, id);
+      // Mốc để tính lãi/lỗ của TỪNG VÁN — cập nhật sau mỗi lần chốt sổ
+      p.walletBase = chips;
+      // Tiền gốc lúc ngồi vào bàn — ĐỨNG YÊN cho tới khi rời bàn, dùng để hiện
+      // "Gốc 50k · Bàn 62k" và tính lãi/lỗ của cả phiên chơi
+      p.sitBalance = chips;
     }
     if (!this.hostId) this.hostId = id;
     return { playerId: id, token };
@@ -217,7 +221,11 @@ export class Room {
     if (conn) {
       this.tokens.delete(conn.token);
       if (notify && conn.ws) {
-        send(conn.ws, { t: 'kicked-from-table', reason: reason || 'Bạn đã rời bàn.' });
+        send(conn.ws, {
+          t: 'kicked-from-table',
+          reason: reason || 'Bạn đã rời bàn.',
+          cashOut: this.cashOutInfo(playerId),
+        });
       }
     }
     this.seats.delete(playerId);
@@ -249,6 +257,7 @@ export class Room {
   /* ---------------------------------------------------------------- */
 
   addBot(profile = 'normal') {
+    if (this.walletMode) throw new Error('Bàn công khai không có bot');
     if (this.isFull()) throw new Error('Bàn đã đầy');
     const used = new Set(this.game.players.map((p) => p.name));
     const name = BOT_NAMES.find((n) => !used.has(n)) ?? `Bot ${this.game.players.length}`;
@@ -592,10 +601,26 @@ export class Room {
     };
   }
 
+  /**
+   * Tiền gốc lúc ngồi vào bàn, chip hiện tại, và lãi/lỗ của cả phiên chơi.
+   * Trả về null nếu không phải bàn công khai hoặc người này không ngồi bàn.
+   */
+  cashOutInfo(playerId) {
+    if (!this.walletMode || !playerId) return null;
+    const p = getPlayer(this.game, playerId);
+    if (!p || typeof p.sitBalance !== 'number') return null;
+    return {
+      tienGoc: p.sitBalance,
+      chip: p.chips,
+      laiLo: p.chips - p.sitBalance,
+    };
+  }
+
   stateFor(viewerId) {
     return {
       t: 'state',
       room: this.roomMeta(),
+      wallet: this.cashOutInfo(viewerId),
       turnDeadline: this.turnDeadline,
       serverTime: Date.now(),
       state: publicView(this.game, viewerId),
@@ -741,11 +766,10 @@ export class RoomManager {
     let code;
     let guard = 0;
     do { code = makeCode(); } while (this.rooms.get(code) && guard++ < 20);
-    const room = this.create(code, tierRoomConfig(tier), { tier, store });
-    // Bàn mới luôn có sẵn 2 nhà cái ảo để vào là chơi được ngay
-    room.addBot();
-    room.addBot();
-    return room;
+    // Bàn công khai KHÔNG có bot: đây là bàn ăn tiền thật, mà bot thì được bơm
+    // lại vốn sau mỗi ván nên thắng bot là xu sinh ra từ hư không. Một mình thì
+    // chờ người khác vào.
+    return this.create(code, tierRoomConfig(tier), { tier, store });
   }
 
   get(code) {

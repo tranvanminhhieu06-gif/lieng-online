@@ -37,7 +37,7 @@ $env:TEST_DATABASE_URL='postgresql://...'
 npm test
 ```
 
-140 test, gồm cả test đầu-cuối dựng server thật và nối nhiều WebSocket thật.
+143 test, gồm cả test đầu-cuối dựng server thật và nối nhiều WebSocket thật.
 
 Mỗi file test tự tạo một **schema riêng** rồi xoá sạch khi xong (xem
 `test/pg-helper.js`), nên chĩa vào cùng cơ sở dữ liệu đang dùng thật cũng không
@@ -78,6 +78,13 @@ Sảnh hiện 4 mức cố định, khai báo trong `src/server/tiers.js`:
 Bàn nào vượt quá số dư thì hiện mờ, khoá nút, và ghi rõ **còn thiếu bao nhiêu xu**.
 Server kiểm tra lại lần nữa lúc ngồi vào bàn — sửa giao diện bằng DevTools không lách được.
 
+**Bàn công khai KHÔNG có bot.** Đây là bàn ăn tiền thật, mà bot thì được bơm lại
+vốn sau mỗi ván — thắng bot là xu sinh ra từ hư không, thua bot là xu biến mất. Bỏ
+bot đi thì kinh tế khép kín: xu chỉ chuyển từ người này sang người kia. Đổi lại, vào
+bàn một mình thì phải **chờ người thứ hai** mới chia bài được.
+
+Phòng riêng theo mã mời vẫn có bot như cũ, vì chip ở đó là chip vui.
+
 **Chip trên bàn công khai chính là số dư tài khoản.** Không có mua chip/rút chip:
 cược bao nhiêu là trừ thẳng vào ví, thắng là cộng thẳng vào ví. Ai tụt xuống dưới
 mức tối thiểu của bàn thì được mời ra sảnh, xu còn lại giữ nguyên.
@@ -104,6 +111,28 @@ Hai chỗ đi kèm, thiếu là sai tiền:
   được cộng.
 
 Ván mới cũng chờ ghi xong mới chia, để không bao giờ chơi bằng số chip chưa khớp ví.
+
+### Tiền gốc và chip trên bàn
+
+Ngồi vào bàn là mang **toàn bộ số dư** vào đánh. Thanh trên cùng hiện hai con số:
+
+```
+Gốc 50k · Bàn 70k +20k
+```
+
+- **Gốc** — số dư lúc bạn ngồi vào bàn. Đứng yên suốt phiên chơi, dù đánh bao nhiêu ván.
+- **Bàn** — chip đang cầm, thay đổi sau mỗi ván.
+- Số màu cuối là **lãi/lỗ của cả phiên**: xanh khi lãi, đỏ khi lỗ.
+
+Rời bàn thì hiện thông báo chốt sổ — *"Rời bàn với 70k xu — lãi 20k. Đã cộng vào
+tiền gốc."* Bị mời ra vì hết xu cũng có thông báo tương tự.
+
+Một điểm về mặt kỹ thuật đáng biết: **Gốc chỉ là mốc hiển thị**, không phải một
+khoản tiền riêng được cất đi. Bên dưới, chip vẫn được ghi vào cơ sở dữ liệu **sau
+mỗi ván** chứ không đợi tới lúc thoát. Nếu đợi thật thì server sập hay Render ngủ
+dậy giữa chừng là kết quả chơi bay sạch. Vì bạn mang toàn bộ số dư vào bàn nên
+không có phần nào nằm ngoài để bảo vệ — ghi sổ sớm chỉ có lợi, và người chơi không
+thấy khác gì.
 
 Một tài khoản chỉ ngồi được **một bàn tại một thời điểm** — nếu không thì cùng một
 số dư sẽ bị đem đi cược ở hai nơi. Mở bàn mới ở tab khác thì ghế cũ tự nhả ra, trừ
@@ -167,7 +196,7 @@ test/
 | Tất tay | Ăn trọn hũ dù bỏ vào ít | Hũ phụ đúng luật |
 | Hoà điểm | Chia đôi tiền | So lá cao nhất, rồi so chất Rô > Cơ > Tép > Bích |
 | Số người | Cố định 4 ghế | 2–6 ghế, xếp động quanh bàn |
-| Bot | Chạy ở client | Chạy ở server, lấp ghế trống |
+| Bot | Chạy ở client | Chỉ có ở phòng riêng; bàn công khai không có bot |
 | Bài đẹp | Không có thưởng | Sáp ăn đôi, Liêng đồng chất ăn gấp rưỡi |
 
 ---
@@ -260,6 +289,38 @@ Hai trường hợp **không** tính thưởng:
 - **Mọi người úp bài hết.** Bài không lộ ra nên không ai biết người thắng cầm gì —
   trả thưởng lúc đó vừa vô lý vừa dễ bị lợi dụng.
 - **Hoà**, nhiều người cùng thắng một hũ.
+
+---
+
+## Hiệu ứng và độ mượt
+
+**Chia bài.** Ba lá bay từ giữa bàn ra từng ghế, lệch nhau một nhịp, kèm tiếng "xoẹt"
+cho mỗi lá. Số lá phát ra khớp đúng số người đang chơi.
+
+**Lật bài.** Tự lật lá nào thì lá đó xoay mở ra kèm tiếng. Người khác lật bài thì bạn
+cũng thấy lá úp của họ nhúc nhích — biết ai đang xem bài tới đâu, nhưng vẫn không
+thấy lá gì.
+
+**Ngửa bài cuối ván** lật lần lượt từng người theo hiệu ứng dây chuyền, không hiện
+cả bàn cùng lúc.
+
+**Tiền chạy số.** Chip và hũ đếm tăng/giảm dần thay vì nhảy cóc, ai vừa ăn tiền thì ô
+chip nảy lên loé vàng. Xu rơi vào hũ có hoạt ảnh riêng.
+
+**Ghế** trượt mượt khi có người vào/ra, ghế tới lượt thở sáng nhẹ theo nhịp.
+
+### Vì sao không bị giật
+
+Trước đây mỗi lần nhận trạng thái từ server, client dựng lại toàn bộ HTML của mọi
+ghế. Làm vậy thì mọi hoạt ảnh CSS bị khởi động lại từ đầu, nhìn như lag dù mạng
+không hề chậm.
+
+Giờ client **cập nhật tại chỗ**: chỉ ghi vào DOM khi giá trị thật sự đổi, và hàng bài
+chỉ dựng lại khi bộ bài đổi (đo bằng một chữ ký gồm số lá và lá nào đã lật). Đo bằng
+`MutationObserver` trong trình duyệt thật: cả một ván chỉ dựng lại hàng bài **4 lần**
+thay vì mỗi lần nhận gói tin.
+
+Thời gian nghỉ giữa hai ván cũng rút từ 6 giây xuống 4 giây.
 
 ---
 
@@ -461,10 +522,6 @@ Mặc định nằm ở `ROOM_DEFAULTS` trong `src/server/room.js`. Server luôn
 
 - **Sổ cái mới chỉ ghi thao tác của trang quản lý**, chưa ghi tiền thắng thua trong
   từng ván. Muốn đối soát đầy đủ thì phải ghi thêm mỗi lần chốt sổ cuối ván.
-- **Bot ở bàn công khai làm sinh/tiêu xu.** Bot không phải tài khoản thật, vốn của
-  chúng được bơm lại sau mỗi ván. Thắng bot là xu được tạo ra từ hư không, thua bot
-  là xu biến mất. Chấp nhận được với game chơi vui; muốn kinh tế khép kín thì phải
-  bỏ bot ở bàn công khai.
 - **Lịch sử ván lưu lâu dài.** Hiện chỉ giữ 50 ván gần nhất trong RAM, phòng đóng là mất.
 - **Ghép người ngẫu nhiên có hàng đợi.** Hiện chỉ xếp vào bàn đông nhất còn ghế trống.
 - **Chống thông đồng.** Hai người cùng bàn gọi điện cho nhau xem bài của nhau — không có giải pháp kỹ thuật thuần, thường phải phát hiện qua thống kê.

@@ -441,8 +441,11 @@ async function handleMessage(ws, session, msg) {
       // Giữ lại tham chiếu phòng: leaveCurrent() sẽ xoá nó khỏi session, nhưng
       // ta cần chờ phòng ghi nốt tiền vào ví trước khi đọc số dư gửi về.
       const phongVuaRoi = session.room;
+      // Lấy số liệu chốt sổ TRƯỚC khi rời ghế — sau đó người chơi không còn
+      // trong ván nên không tính được nữa.
+      const chotSo = phongVuaRoi?.cashOutInfo(session.playerId) ?? null;
       leaveCurrent(session);
-      send(ws, { t: 'left' });
+      send(ws, { t: 'left', cashOut: chotSo });
       if (session.account) {
         if (phongVuaRoi) await phongVuaRoi.flushWrites();
         session.account = await store.getAccount(session.account.id) ?? session.account;
