@@ -35,7 +35,7 @@ export function tierRoomConfig(tier) {
     ante: tier.ante,
     startChips: tier.minBalance,
     maxPlayers: TIER_MAX_PLAYERS,
-    maxRaises: 4,
+    maxRaises: 20,
     turnSeconds: 25,
     tiebreakBySuit: true,
     autoStart: true,

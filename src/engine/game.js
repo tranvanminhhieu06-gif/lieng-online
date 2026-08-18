@@ -32,7 +32,7 @@ export const PHASE = {
 export const DEFAULT_CONFIG = {
   ante: 10,
   startChips: 500,
-  maxRaises: 4,        // số lần tố tối đa trong một ván
+  maxRaises: 20,       // số lần tố tối đa trong một ván (cho phép tố cộng dồn liên tục)
   minPlayers: 2,
   maxPlayers: 6,
   tiebreakBySuit: true,

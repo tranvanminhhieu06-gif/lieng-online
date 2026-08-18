@@ -996,10 +996,11 @@
   <div class="controls">
     <div class="call-info" id="callInfo">Đang chờ…</div>
     <div class="stepper" id="stepper" style="display:none;">
-      <button id="raiseMinus">−</button>
+      <button class="mini" id="raiseMin" title="Đặt lại mức cược tối thiểu">Sàn</button>
+      <button id="raiseMinus" title="Giảm mức cược">−</button>
       <div class="raise-amt" id="raiseAmt">0</div>
-      <button id="raisePlus">+</button>
-      <button class="mini" id="raiseAllIn">Tất tay</button>
+      <button id="raisePlus" title="Tăng mức cược">+</button>
+      <button class="mini" id="raiseAllIn" title="Tố tất tay">Tất tay</button>
     </div>
     <button class="btn btn-ghost" id="btnFlipAll" style="display:none;">Mở hết 3 lá</button>
     <div class="quick-bets" id="quickBets" style="display:none;"></div>
@@ -1839,6 +1840,7 @@ function renderControls(){
   // Tới lượt mình
   ui.raiseTarget = clamp(ui.raiseTarget || legal.minRaise, legal.minRaise, legal.maxRaise);
   $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
+  $('btnTo').textContent = legal.canRaise ? `⟨ Tố ${fmtXu(ui.raiseTarget)} ⟩` : '⟨ Tố ⟩';
   $('stepper').style.display = legal.canRaise ? 'flex' : 'none';
   renderQuickBets(legal);
   enable(legal.canRaise, legal.canCall, legal.canFold);
@@ -1862,29 +1864,39 @@ function renderControls(){
     : `Chưa ai tố — giữ bài miễn phí. <span class="count" id="cdown"></span>`;
 }
 
-/** Các mức tố nhanh, tính theo "tố thêm bao nhiêu so với mức đang có". */
-const MUC_TO_NHANH = [1_000, 5_000, 10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000];
+/** Tạo danh sách các mức cược nhanh phù hợp với tiền sàn của bàn. */
+function getMucToNhanh(ante){
+  const a = Math.max(1, Number(ante || 1000));
+  const list = [a, a * 2, a * 5, a * 10, a * 20, a * 50];
+  return Array.from(new Set(list)).sort((x, y) => x - y);
+}
 
 function renderQuickBets(legal){
   const box = $('quickBets');
-  if(!legal.canRaise){ box.style.display = 'none'; return; }
+  if(!legal || !legal.canRaise){ box.style.display = 'none'; return; }
   box.style.display = 'flex';
 
-  const st = ui.state;
-  box.innerHTML = MUC_TO_NHANH.map((them) => {
-    const dich = st.currentBet + them;
-    // Mức nào thấp hơn mức tố tối thiểu, hoặc vượt số chip đang có, thì khoá
-    const duoc = dich >= legal.minRaise && dich <= legal.maxRaise;
-    const dangChon = duoc && ui.raiseTarget === dich;
-    return `<button data-them="${them}" ${duoc ? '' : 'disabled'} class="${dangChon ? 'on' : ''}"
-      title="Tố lên ${fmtDayDu(dich)}">+${fmtXu(them)}</button>`;
+  const ante = ui.state?.config?.ante || 1000;
+  const options = getMucToNhanh(ante);
+
+  box.innerHTML = options.map((them) => {
+    // Cho phép bấm nếu sau khi cộng dồn không vượt quá tất tay
+    const base = (ui.raiseTarget && ui.raiseTarget >= legal.minRaise) ? ui.raiseTarget : legal.minRaise;
+    const dich = base + them;
+    const duoc = dich <= legal.maxRaise;
+    return `<button data-them="${them}" ${duoc ? '' : 'disabled'} class="quick-chip-btn"
+      title="Cộng dồn thêm +${fmtDayDu(them)} (lên ${fmtDayDu(Math.min(dich, legal.maxRaise))})">+${fmtXu(them)}</button>`;
   }).join('');
 
   box.querySelectorAll('button[data-them]').forEach((b) => {
     b.onclick = () => {
-      const l = ui.state?.legal; if(!l) return;
-      ui.raiseTarget = clamp(ui.state.currentBet + (+b.dataset.them), l.minRaise, l.maxRaise);
+      const l = ui.state?.legal; if(!l || !l.canRaise) return;
+      const them = +b.dataset.them;
+      const base = (ui.raiseTarget && ui.raiseTarget >= l.minRaise) ? ui.raiseTarget : l.minRaise;
+      ui.raiseTarget = clamp(base + them, l.minRaise, l.maxRaise);
       $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
+      $('btnTo').textContent = `⟨ Tố ${fmtXu(ui.raiseTarget)} ⟩`;
+      sfx.chip?.();
       renderQuickBets(l);
     };
   });
@@ -2106,20 +2118,39 @@ $('btnTo').onclick = () => act('raise', ui.raiseTarget);
 $('btnTheo').onclick = () => act('call');
 $('btnUp').onclick = () => act('fold');
 
-$('raiseMinus').onclick = () => {
-  const l = ui.state?.legal; if(!l) return;
-  ui.raiseTarget = clamp(ui.raiseTarget - l.raiseStep, l.minRaise, l.maxRaise);
+$('raiseMin').onclick = () => {
+  const l = ui.state?.legal; if(!l || !l.canRaise) return;
+  ui.raiseTarget = l.minRaise;
   $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
+  $('btnTo').textContent = `⟨ Tố ${fmtXu(ui.raiseTarget)} ⟩`;
+  sfx.chip?.();
+  renderQuickBets(l);
+};
+$('raiseMinus').onclick = () => {
+  const l = ui.state?.legal; if(!l || !l.canRaise) return;
+  const base = (ui.raiseTarget && ui.raiseTarget >= l.minRaise) ? ui.raiseTarget : l.minRaise;
+  ui.raiseTarget = clamp(base - l.raiseStep, l.minRaise, l.maxRaise);
+  $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
+  $('btnTo').textContent = `⟨ Tố ${fmtXu(ui.raiseTarget)} ⟩`;
+  sfx.chip?.();
+  renderQuickBets(l);
 };
 $('raisePlus').onclick = () => {
-  const l = ui.state?.legal; if(!l) return;
-  ui.raiseTarget = clamp(ui.raiseTarget + l.raiseStep, l.minRaise, l.maxRaise);
+  const l = ui.state?.legal; if(!l || !l.canRaise) return;
+  const base = (ui.raiseTarget && ui.raiseTarget >= l.minRaise) ? ui.raiseTarget : l.minRaise;
+  ui.raiseTarget = clamp(base + l.raiseStep, l.minRaise, l.maxRaise);
   $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
+  $('btnTo').textContent = `⟨ Tố ${fmtXu(ui.raiseTarget)} ⟩`;
+  sfx.chip?.();
+  renderQuickBets(l);
 };
 $('raiseAllIn').onclick = () => {
-  const l = ui.state?.legal; if(!l) return;
+  const l = ui.state?.legal; if(!l || !l.canRaise) return;
   ui.raiseTarget = l.maxRaise;
   $('raiseAmt').textContent = fmtXu(ui.raiseTarget);
+  $('btnTo').textContent = `⟨ Tố ${fmtXu(ui.raiseTarget)} ⟩`;
+  sfx.chip?.();
+  renderQuickBets(l);
 };
 
 $('btnStart').onclick = () => sendRaw({t:'start'});
