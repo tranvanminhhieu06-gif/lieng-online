@@ -15,8 +15,8 @@ export const TIERS = [
   { id: 'muc20',  label: 'Bàn 20K',  ante: 20_000,  minBalance: 20_000 },
   { id: 'muc100', label: 'Bàn 100K', ante: 100_000, minBalance: 100_000 },
   { id: 'muc500', label: 'Bàn 500K', ante: 500_000,   minBalance: 2_500_000 },
-  { id: 'muc1b',  label: 'Bàn 1B',   ante: 1_000_000,  minBalance: 5_000_000 },
-  { id: 'muc5b',  label: 'Bàn 5B',   ante: 5_000_000,  minBalance: 25_000_000 },
+  { id: 'muc1m',  label: 'Bàn 1M',   ante: 1_000_000,  minBalance: 5_000_000 },
+  { id: 'muc5m',  label: 'Bàn 5M',   ante: 5_000_000,  minBalance: 25_000_000 },
 ];
 
 /** Số ghế mỗi bàn công khai. */
@@ -26,6 +26,8 @@ export const TIER_MAX_PLAYERS = 5;
 export const BOT_STACK_MULTIPLIER = 10;
 
 export function getTier(id) {
+  if (id === 'muc1b') return TIERS.find((t) => t.id === 'muc1m') ?? null;
+  if (id === 'muc5b') return TIERS.find((t) => t.id === 'muc5m') ?? null;
   return TIERS.find((t) => t.id === id) ?? null;
 }
 
