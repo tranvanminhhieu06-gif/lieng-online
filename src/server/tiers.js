@@ -14,6 +14,9 @@ export const TIERS = [
   { id: 'muc5',   label: 'Bàn 5K',   ante: 5_000,   minBalance: 5_000 },
   { id: 'muc20',  label: 'Bàn 20K',  ante: 20_000,  minBalance: 20_000 },
   { id: 'muc100', label: 'Bàn 100K', ante: 100_000, minBalance: 100_000 },
+  { id: 'muc500', label: 'Bàn 500K', ante: 500_000,   minBalance: 2_500_000 },
+  { id: 'muc1b',  label: 'Bàn 1B',   ante: 1_000_000,  minBalance: 5_000_000 },
+  { id: 'muc5b',  label: 'Bàn 5B',   ante: 5_000_000,  minBalance: 25_000_000 },
 ];
 
 /** Số ghế mỗi bàn công khai. */

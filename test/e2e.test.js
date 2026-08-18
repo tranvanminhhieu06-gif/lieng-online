@@ -174,7 +174,7 @@ test('đăng ký xong nhận được sảnh kèm số dư và thẻ điểm dan
   await c.waitFor((x) => x.lobby, { label: 'sảnh' });
   assert.equal(c.account.balance, 50_000);
   assert.equal(c.lobby.checkin.days.length, 7);
-  assert.equal(c.lobby.tiers.length, 4);
+  assert.equal(c.lobby.tiers.length, 7);
   c.close();
 });
 
