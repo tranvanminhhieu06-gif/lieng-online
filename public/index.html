@@ -1113,8 +1113,19 @@ function wsUrl(){
   return `${proto}//${location.host}/ws`;
 }
 
+let pendingOnOpen = [];
+
 function connect(onOpen){
-  if(ui.ws && (ui.ws.readyState === 0 || ui.ws.readyState === 1)) { onOpen?.(); return; }
+  if(onOpen) pendingOnOpen.push(onOpen);
+  if(ui.ws && ui.ws.readyState === 1){
+    const queue = pendingOnOpen.slice();
+    pendingOnOpen = [];
+    queue.forEach(cb => { try{ cb(); }catch{} });
+    return;
+  }
+  if(ui.ws && ui.ws.readyState === 0){
+    return; // Đang nối, onopen sẽ gọi hết callback trong hàng đợi
+  }
   const ws = new WebSocket(wsUrl());
   ui.ws = ws;
 
@@ -1122,7 +1133,9 @@ function connect(onOpen){
     ui.connected = true;
     ui.reconnectDelay = 800;
     setConn('ok', 'đã kết nối');
-    onOpen?.();
+    const queue = pendingOnOpen.slice();
+    pendingOnOpen = [];
+    queue.forEach(cb => { try{ cb(); }catch{} });
   };
   ws.onclose = () => {
     ui.connected = false;
@@ -1134,7 +1147,11 @@ function connect(onOpen){
       ui.reconnectDelay = Math.min(ui.reconnectDelay * 1.7, 10000);
     }
   };
-  ws.onerror = () => {};
+  ws.onerror = () => {
+    if($('auth')?.classList.contains('show')){
+      $('authErr').textContent = 'Không thể kết nối tới máy chủ. Vui lòng thử lại.';
+    }
+  };
   ws.onmessage = (ev) => {
     let msg; try{ msg = JSON.parse(ev.data); }catch{ return; }
     handle(msg);
@@ -1142,7 +1159,13 @@ function connect(onOpen){
 }
 
 function sendRaw(obj){
-  if(ui.ws?.readyState === 1) ui.ws.send(JSON.stringify(obj));
+  if(ui.ws?.readyState === 1){
+    ui.ws.send(JSON.stringify(obj));
+  } else {
+    connect(() => {
+      if(ui.ws?.readyState === 1) ui.ws.send(JSON.stringify(obj));
+    });
+  }
 }
 
 function setConn(kind, text){
