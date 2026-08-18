@@ -132,20 +132,24 @@ function pushChanges(customMessage = null, isInteractive = true) {
     return false;
   }
 
-  // Chạy git push với stdio: inherit để người dùng thấy tiến trình và đăng nhập nếu cần
-  const result = spawnSync('git', ['push', '-u', 'origin', branch], {
-    cwd: ROOT_DIR,
-    stdio: 'inherit',
-    env: process.env,
-    shell: true
-  });
+  let pushSuccess = false;
+  try {
+    execSync(`git push -u origin ${branch}`, {
+      cwd: ROOT_DIR,
+      stdio: 'inherit',
+      env: process.env
+    });
+    pushSuccess = true;
+  } catch {
+    pushSuccess = false;
+  }
 
-  if (result.status === 0) {
+  if (pushSuccess) {
     console.log(`🎉 [${getTimestamp()}] Đã đẩy code lên Git thành công!`);
     return true;
   } else {
     console.log(`\n⚠️ Chưa thể push lên GitHub tự động.`);
-    console.log(`💡 Lưu ý: Nếu đây là lần đầu hoặc token GitHub hết hạn, vui lòng:`);
+    console.log(`💡 Hướng dẫn xử lý:`);
     console.log(`   1. Nhấp đúp vào file 'autopush.bat' trên Desktop/Thư mục dự án.`);
     console.log(`   2. Hoặc tạo GitHub Personal Access Token (PAT) tại https://github.com/settings/tokens`);
     console.log(`   3. Chạy lệnh: git push`);
