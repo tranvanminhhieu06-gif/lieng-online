@@ -1,15 +1,13 @@
 @echo off
-chcp 65001 >nul
-title Lieng Online - Tu Dong Day Len Git
-
-echo ========================================================
-echo        LIÊNG ONLINE - TỰ ĐỘNG ĐẨY CODE LÊN GIT
-echo ========================================================
-echo.
-
+setlocal
 cd /d "%~dp0"
-node scripts\autopush.js %*
-
+title Lieng Online - Auto Git Push
+echo ========================================================
+echo        LIENG ONLINE - AUTO PUSH TO GITHUB
+echo ========================================================
 echo.
-echo Nhấn phím bất kỳ để đóng cửa sổ...
+node scripts/autopush.js %*
+echo.
+echo Done. Press any key to exit...
 pause >nul
+endlocal
