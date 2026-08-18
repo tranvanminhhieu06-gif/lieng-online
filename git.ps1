@@ -1,0 +1,1 @@
+& "C:\Program Files\Git\mingw64\libexec\git-core\git.exe" @args

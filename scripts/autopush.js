@@ -23,9 +23,16 @@ for (const p of possibleGitPaths) {
   }
 }
 
+const directGitExe = [
+  'C:\\Program Files\\Git\\mingw64\\libexec\\git-core\\git.exe',
+  'C:\\Program Files\\Git\\cmd\\git.exe',
+  'C:\\Program Files\\Git\\bin\\git.exe',
+  path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'cmd', 'git.exe')
+].find(p => fs.existsSync(p)) || 'git';
+
 function runGit(args, options = {}) {
   try {
-    return execSync(`git ${args}`, {
+    return execSync(`"${directGitExe}" ${args}`, {
       cwd: ROOT_DIR,
       encoding: 'utf-8',
       stdio: options.stdio || 'pipe',
