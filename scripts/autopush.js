@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,10 +7,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 
-// Đảm bảo PATH có chứa thư mục git-core nếu chạy trên Windows
+// Đảm bảo PATH có chứa thư mục Git trên Windows
 const possibleGitPaths = [
   'C:\\Program Files\\Git\\mingw64\\libexec\\git-core',
   'C:\\Program Files\\Git\\cmd',
+  'C:\\Program Files\\Git\\usr\\bin',
   'C:\\Program Files\\Git\\bin',
   'C:\\Program Files (x86)\\Git\\cmd',
   path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'cmd')
@@ -30,7 +31,7 @@ function runGit(args, options = {}) {
       stdio: options.stdio || 'pipe',
       env: process.env,
       ...options
-    }).trim();
+    });
   } catch (error) {
     if (options.ignoreError) return null;
     throw error;
@@ -65,70 +66,89 @@ function getChangedFiles() {
 
 function getCurrentBranch() {
   try {
-    const branch = runGit('branch --show-current');
-    return branch || 'main';
+    const branch = runGit('branch --show-current', { ignoreError: true });
+    return (branch && branch.trim()) || 'main';
   } catch {
     return 'main';
   }
 }
 
-function pushChanges(customMessage = null) {
+function pushChanges(customMessage = null, isInteractive = true) {
   console.log(`\n[${getTimestamp()}] 🔍 Đang kiểm tra trạng thái Git...`);
   
   const changedFiles = getChangedFiles();
-  if (changedFiles.length === 0) {
-    console.log(`✅ [${getTimestamp()}] Working tree sạch. Không có thay đổi nào cần đẩy.`);
+  
+  // Kiểm tra xem có commit nào chưa push không
+  let unpushedCommits = '';
+  try {
+    unpushedCommits = runGit('log origin/main..HEAD --oneline', { ignoreError: true }) || '';
+  } catch {
+    // Chưa có tracking branch
+  }
+
+  if (changedFiles.length === 0 && !unpushedCommits.trim()) {
+    console.log(`✅ [${getTimestamp()}] Working tree sạch và không có commit mới nào cần đẩy.`);
     return false;
   }
 
-  console.log(`📝 Phát hiện ${changedFiles.length} file có thay đổi:`);
-  changedFiles.slice(0, 10).forEach(f => {
-    console.log(`   - [${f.status}] ${f.file}`);
-  });
-  if (changedFiles.length > 10) {
-    console.log(`   ... và ${changedFiles.length - 10} file khác`);
-  }
+  if (changedFiles.length > 0) {
+    console.log(`📝 Phát hiện ${changedFiles.length} file có thay đổi:`);
+    changedFiles.slice(0, 8).forEach(f => {
+      console.log(`   - [${f.status}] ${f.file}`);
+    });
+    if (changedFiles.length > 8) {
+      console.log(`   ... và ${changedFiles.length - 8} file khác`);
+    }
 
-  // Tạo commit message nếu không truyền vào
-  let commitMsg = customMessage;
-  if (!commitMsg) {
-    const fileSummary = changedFiles
-      .slice(0, 3)
-      .map(f => path.basename(f.file))
-      .join(', ');
-    const extra = changedFiles.length > 3 ? ` (+${changedFiles.length - 3} files)` : '';
-    commitMsg = `Auto-update [${getTimestamp()}]: ${fileSummary}${extra}`;
-  }
-
-  try {
-    console.log(`⏳ Đang thực hiện git add...`);
-    runGit('add -A');
-
-    console.log(`💾 Đang commit: "${commitMsg}"`);
-    runGit(`commit -m "${commitMsg.replace(/"/g, '\\"')}"`);
-
-    const branch = getCurrentBranch();
-    console.log(`🚀 Đang đẩy code lên branch '${branch}'...`);
-    
-    // Kiểm tra xem remote origin đã được thiết lập chưa
-    const remotes = runGit('remote', { ignoreError: true });
-    if (!remotes || !remotes.includes('origin')) {
-      console.warn(`⚠️ Chưa thiết lập remote 'origin'. Vui lòng dùng lệnh: git remote add origin <url>`);
-      return false;
+    // Tạo commit message nếu không truyền vào
+    let commitMsg = customMessage;
+    if (!commitMsg) {
+      const fileSummary = changedFiles
+        .slice(0, 3)
+        .map(f => path.basename(f.file))
+        .join(', ');
+      const extra = changedFiles.length > 3 ? ` (+${changedFiles.length - 3} files)` : '';
+      commitMsg = `Auto-update [${getTimestamp()}]: ${fileSummary}${extra}`;
     }
 
     try {
-      runGit(`push origin ${branch}`);
-    } catch (pushErr) {
-      // Nếu chưa set upstream, thử push -u origin <branch>
-      console.log(`ℹ️ Thử thiết lập upstream và push lại...`);
-      runGit(`push -u origin ${branch}`);
-    }
+      console.log(`⏳ Đang thực hiện git add...`);
+      runGit('add -A');
 
+      console.log(`💾 Đang commit: "${commitMsg}"`);
+      runGit(`commit -m "${commitMsg.replace(/"/g, '\\"')}"`);
+    } catch (err) {
+      console.error(`❌ Lỗi khi commit:`, err.message);
+      return false;
+    }
+  }
+
+  const branch = getCurrentBranch();
+  console.log(`🚀 Đang đẩy code lên branch '${branch}'...`);
+
+  const remotes = runGit('remote', { ignoreError: true });
+  if (!remotes || !remotes.includes('origin')) {
+    console.warn(`⚠️ Chưa thiết lập remote 'origin'. Vui lòng dùng lệnh: git remote add origin <url>`);
+    return false;
+  }
+
+  // Chạy git push với stdio: inherit để người dùng thấy tiến trình và đăng nhập nếu cần
+  const result = spawnSync('git', ['push', '-u', 'origin', branch], {
+    cwd: ROOT_DIR,
+    stdio: 'inherit',
+    env: process.env,
+    shell: true
+  });
+
+  if (result.status === 0) {
     console.log(`🎉 [${getTimestamp()}] Đã đẩy code lên Git thành công!`);
     return true;
-  } catch (error) {
-    console.error(`❌ Lỗi trong quá trình tự động đẩy:`, error.message || error);
+  } else {
+    console.log(`\n⚠️ Chưa thể push lên GitHub tự động.`);
+    console.log(`💡 Lưu ý: Nếu đây là lần đầu hoặc token GitHub hết hạn, vui lòng:`);
+    console.log(`   1. Nhấp đúp vào file 'autopush.bat' trên Desktop/Thư mục dự án.`);
+    console.log(`   2. Hoặc tạo GitHub Personal Access Token (PAT) tại https://github.com/settings/tokens`);
+    console.log(`   3. Chạy lệnh: git push`);
     return false;
   }
 }
@@ -173,7 +193,7 @@ function startWatchMode(debounceMs = 15000) {
         if (isPushing) return;
         isPushing = true;
         try {
-          pushChanges();
+          pushChanges(null, false);
         } finally {
           isPushing = false;
         }
@@ -195,11 +215,10 @@ function startIntervalMode(minutes = 5) {
   console.log(`Nhấn Ctrl + C để dừng.`);
   console.log(`==================================================\n`);
 
-  // Chạy ngay lần đầu
-  pushChanges();
+  pushChanges(null, false);
 
   setInterval(() => {
-    pushChanges();
+    pushChanges(null, false);
   }, intervalMs);
 }
 
@@ -208,10 +227,11 @@ function main() {
   const args = process.argv.slice(2);
 
   if (args.includes('--watch') || args.includes('-w')) {
-    const debounceIdx = args.findIndex(a => a === '--debounce' || a === '-d');
+    const debounceIdx = args.findIndex(a => a === '--watch' || a === '-w');
     let debounceMs = 15000;
-    if (debounceIdx !== -1 && args[debounceIdx + 1]) {
-      debounceMs = parseInt(args[debounceIdx + 1], 10) * 1000 || 15000;
+    const nextArg = args[debounceIdx + 1];
+    if (nextArg && !isNaN(Number(nextArg))) {
+      debounceMs = parseInt(nextArg, 10) * 1000;
     }
     startWatchMode(debounceMs);
     return;
@@ -220,8 +240,9 @@ function main() {
   if (args.includes('--interval') || args.includes('-i')) {
     const intervalIdx = args.findIndex(a => a === '--interval' || a === '-i');
     let minutes = 5;
-    if (intervalIdx !== -1 && args[intervalIdx + 1] && !isNaN(Number(args[intervalIdx + 1]))) {
-      minutes = parseFloat(args[intervalIdx + 1]);
+    const nextArg = args[intervalIdx + 1];
+    if (nextArg && !isNaN(Number(nextArg))) {
+      minutes = parseFloat(nextArg);
     }
     startIntervalMode(minutes);
     return;
@@ -237,7 +258,7 @@ Hướng dẫn sử dụng Tự động đẩy Git (Auto-push):
 
 2. Tự động đẩy khi có file thay đổi (Watch mode):
    npm run push:watch
-   hoặc: node scripts/autopush.js --watch --debounce 15
+   hoặc: node scripts/autopush.js --watch 15
 
 3. Tự động kiểm tra và đẩy định kỳ mỗi N phút:
    npm run push:interval 5
@@ -250,7 +271,7 @@ Hướng dẫn sử dụng Tự động đẩy Git (Auto-push):
 
   // Chế độ đẩy ngay 1 lần
   const customMessage = args.filter(a => !a.startsWith('-')).join(' ').trim() || null;
-  pushChanges(customMessage);
+  pushChanges(customMessage, true);
 }
 
 main();
