@@ -397,9 +397,7 @@ async function handleMessage(ws, session, msg) {
       if (!res.ok) {
         send(ws, { t: 'error', message: res.error });
         send(ws, room.stateFor(playerId));
-      } else if (session.account) {
-        // Chờ cộng tiền vào ví xong rồi mới đọc lại, nếu không client sẽ nhận
-        // số dư cũ của trước ván và tưởng là tiền thắng chưa được cộng.
+      } else if (session.account && (room.game.phase === PHASE.ROUND_OVER || room.game.phase === PHASE.GAME_OVER)) {
         await room.flushWrites();
         session.account = await store.getAccount(session.account.id) ?? session.account;
         send(ws, { t: 'account', account: session.account });
@@ -438,19 +436,17 @@ async function handleMessage(ws, session, msg) {
     }
 
     case 'leave': {
-      // Giữ lại tham chiếu phòng: leaveCurrent() sẽ xoá nó khỏi session, nhưng
-      // ta cần chờ phòng ghi nốt tiền vào ví trước khi đọc số dư gửi về.
       const phongVuaRoi = session.room;
-      // Lấy số liệu chốt sổ TRƯỚC khi rời ghế — sau đó người chơi không còn
-      // trong ván nên không tính được nữa.
       const chotSo = phongVuaRoi?.cashOutInfo(session.playerId) ?? null;
       leaveCurrent(session);
-      send(ws, { t: 'left', cashOut: chotSo });
       if (session.account) {
         if (phongVuaRoi) await phongVuaRoi.flushWrites();
         session.account = await store.getAccount(session.account.id) ?? session.account;
+        send(ws, { t: 'left', cashOut: chotSo, account: session.account });
         send(ws, { t: 'account', account: session.account });
         await sendLobby(ws, session);
+      } else {
+        send(ws, { t: 'left', cashOut: chotSo });
       }
       return;
     }

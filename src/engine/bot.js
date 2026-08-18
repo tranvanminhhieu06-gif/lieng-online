@@ -62,7 +62,7 @@ export function decideBotAction(bot, legal, ctx = {}) {
   return { type: 'call', actionSeq: seq };
 }
 
-/** Thời gian "suy nghĩ" giả lập cho tự nhiên. */
+/** Thời gian "suy nghĩ" giả lập tự nhiên, nhanh gọn không gây delay. */
 export function botThinkDelay(random = Math.random) {
-  return 700 + Math.floor(random() * 900);
+  return 300 + Math.floor(random() * 350);
 }

@@ -801,24 +801,25 @@ function tone(freq, dur, type='sine', gain=0.05, delayS=0){
     osc.type = type; osc.frequency.value = freq; g.gain.value = gain;
     osc.connect(g); g.connect(c.destination);
     const t0 = c.currentTime + delayS;
-    g.gain.setValueAtTime(gain, t0);
-    g.gain.exponentialRampToValueAtTime(0.001, t0+dur);
-    osc.start(t0); osc.stop(t0+dur+0.02);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.start(t0); osc.stop(t0 + dur + 0.01);
   }catch(e){}
 }
 const sfx = {
-  deal(){ for(let i=0;i<4;i++) tone(520+i*30, .06, 'triangle', .04, i*.06); },
-  chip(){ tone(880,.05,'square',.03); tone(660,.05,'square',.025,.03); },
-  fold(){ tone(220,.18,'sawtooth',.03); },
-  win(){ [523,659,784,1046].forEach((f,i)=>tone(f,.22,'sine',.05,i*.09)); },
-  turn(){ tone(700,.09,'sine',.05); tone(940,.09,'sine',.04,.1); },
-  flip(){ tone(420,.07,'triangle',.05); tone(680,.09,'triangle',.04,.05); },
-  flipNhe(){ tone(340,.05,'triangle',.022); },
+  deal(){ for(let i=0;i<4;i++) tone(520+i*30, .05, 'triangle', .035, i*.04); },
+  chip(){ tone(880,.04,'square',.025); tone(660,.04,'square',.02,.02); },
+  fold(){ tone(220,.14,'sawtooth',.025); },
+  win(){ [523,659,784,1046].forEach((f,i)=>tone(f,.18,'sine',.04,i*.07)); },
+  turn(){ tone(700,.08,'sine',.04); tone(940,.08,'sine',.035,.08); },
+  flip(){ tone(420,.06,'triangle',.04); tone(680,.07,'triangle',.035,.04); },
+  flipNhe(){ tone(340,.04,'triangle',.02); },
   // Chia bài: mỗi lá một tiếng "xoẹt", lệch nhau đúng nhịp với hoạt ảnh
   chiaBai(soNguoi){
-    const soLa = Math.max(1, soNguoi) * 3;
+    const soLa = Math.min(soNguoi || 3, 6) * 3;
     for(let i = 0; i < soLa; i++){
-      tone(560 + (i % 3) * 45, .045, 'triangle', .035, i * 0.075);
+      tone(560 + (i % 3) * 45, .035, 'triangle', .025, i * 0.04);
     }
   },
 };
@@ -909,6 +910,9 @@ function handle(msg){
       showScreen('auth');
       break;
     case 'kicked-from-table':
+      if (msg.cashOut && typeof msg.cashOut.chip === 'number' && ui.account) {
+        ui.account.balance = msg.cashOut.chip;
+      }
       baoChotSo(msg.cashOut);
       ui.code = null;
       ui.token = null;
@@ -917,6 +921,7 @@ function handle(msg){
       try{ localStorage.removeItem(STORE_KEY); }catch{}
       sendRaw({t:'leave'}); // dọn nốt phiên phía server
       showScreen('lobby');
+      renderWallet(true);
       sendRaw({t:'lobby'});
       toast(msg.reason);
       break;
@@ -966,15 +971,19 @@ function handle(msg){
       else toast(msg.message);
       break;
     case 'left':
+      if (msg.account) {
+        ui.account = msg.account;
+      } else if (ui.account && msg.cashOut && typeof msg.cashOut.chip === 'number') {
+        ui.account.balance = msg.cashOut.chip;
+      }
       baoChotSo(msg.cashOut);
       ui.code = null;
       ui.wallet = null;
       try{ localStorage.removeItem(STORE_KEY); }catch{}
       history.replaceState(null, '', '/');
       showScreen('lobby');
+      renderWallet(true);
       break;
-  }
-}
 
 /** Thông báo chốt sổ khi rời bàn: mang vào bao nhiêu, ra về bao nhiêu. */
 function baoChotSo(w){
@@ -1221,16 +1230,17 @@ function setClass(el, ten, bat){
 }
 
 /** Số tiền đếm tăng/giảm dần thay vì nhảy cóc. */
-function chaySo(el, tuGiaTri, toiGiaTri, thoiGian = 420){
+function chaySo(el, tuGiaTri, toiGiaTri, thoiGian = 280){
   if(!el) return;
-  if(tuGiaTri === toiGiaTri){ setText(el, fmtXu(toiGiaTri)); return; }
+  if(tuGiaTri === toiGiaTri || isNaN(tuGiaTri) || isNaN(toiGiaTri)){ setText(el, fmtXu(toiGiaTri)); return; }
   const batDau = performance.now();
-  cancelAnimationFrame(el._raf);
+  if(el._raf) cancelAnimationFrame(el._raf);
   const buoc = (luc) => {
     const t = Math.min(1, (luc - batDau) / thoiGian);
     const muot = 1 - Math.pow(1 - t, 3);
     setText(el, fmtXu(Math.round(tuGiaTri + (toiGiaTri - tuGiaTri) * muot)));
     if(t < 1) el._raf = requestAnimationFrame(buoc);
+    else el._raf = null;
   };
   el._raf = requestAnimationFrame(buoc);
 }
@@ -1282,10 +1292,10 @@ function veBai(el, p, st, isMe){
       flippable: conCheDay && !la,
       index: k,
       justFlipped: vuaLat,
-      // Chia bài: lá bay từ giữa bàn ra, lệch nhau một nhịp
+      // Chia bài: lá bay từ giữa bàn ra, nhanh và mượt
       dealing: laMoiChia && st.phase === 'betting',
-      delay: laMoiChia ? k * 90 : (thuTuNgua >= 0 ? thuTuNgua * 260 + k * 80 : 0),
-      // Ngửa bài cuối ván: mỗi người lật lần lượt cho hồi hộp
+      delay: laMoiChia ? k * 45 : (thuTuNgua >= 0 ? thuTuNgua * 130 + k * 35 : 0),
+      // Ngửa bài cuối ván: mỗi người lật lần lượt
       showdown: thuTuNgua >= 0 && !!la && !isMe,
     });
   }).join('');
@@ -1293,7 +1303,13 @@ function veBai(el, p, st, isMe){
 
   if(conCheDay){
     hang.querySelectorAll('.card[data-flip]').forEach((c) => {
-      c.onclick = () => sendRaw({t:'flip', index: +c.dataset.flip});
+      c.onclick = () => {
+        const idx = +c.dataset.flip;
+        c.classList.add('just-flipped');
+        ui.flipAnim.add(idx);
+        sfx.flip();
+        sendRaw({t:'flip', index: idx});
+      };
     });
   }
 }
@@ -1778,7 +1794,15 @@ $('btnSound').onclick = (e) => {
   e.currentTarget.textContent = ui.soundOn ? '🔊' : '🔇';
 };
 
-$('btnFlipAll').onclick = () => sendRaw({t:'flip', all:true});
+$('btnFlipAll').onclick = () => {
+  sfx.flip();
+  document.querySelectorAll('.seat.me .card[data-flip]').forEach((c) => {
+    c.classList.add('just-flipped');
+    const idx = +c.dataset.flip;
+    if (!isNaN(idx)) ui.flipAnim.add(idx);
+  });
+  sendRaw({t:'flip', all:true});
+};
 
 function setAutoFlip(on){
   ui.autoFlip = on;

@@ -85,8 +85,11 @@ export class Store {
       max: 5,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 15_000,
-      options: this.schema === 'public' ? undefined : `-c search_path=${this.schema}`,
     });
+  }
+
+  t(table) {
+    return this.schema !== 'public' ? `"${this.schema}".${table}` : table;
   }
 
   /**
@@ -120,10 +123,10 @@ export class Store {
 
   async createTables() {
     if (this.schema !== 'public') {
-      await this.pool.query(`CREATE SCHEMA IF NOT EXISTS ${this.schema}`);
+      await this.pool.query(`CREATE SCHEMA IF NOT EXISTS "${this.schema}"`);
     }
     await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS accounts (
+      CREATE TABLE IF NOT EXISTS ${this.t('accounts')} (
         id           BIGSERIAL PRIMARY KEY,
         username     TEXT NOT NULL UNIQUE,
         salt         TEXT NOT NULL,
@@ -133,14 +136,14 @@ export class Store {
         created_at   BIGINT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS sessions (
+      CREATE TABLE IF NOT EXISTS ${this.t('sessions')} (
         token      TEXT PRIMARY KEY,
-        account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        account_id BIGINT NOT NULL REFERENCES ${this.t('accounts')}(id) ON DELETE CASCADE,
         created_at BIGINT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS checkins (
-        account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      CREATE TABLE IF NOT EXISTS ${this.t('checkins')} (
+        account_id BIGINT NOT NULL REFERENCES ${this.t('accounts')}(id) ON DELETE CASCADE,
         week_start TEXT NOT NULL,
         day_index  INTEGER NOT NULL,
         amount     BIGINT NOT NULL,
@@ -148,9 +151,9 @@ export class Store {
         PRIMARY KEY (account_id, week_start, day_index)
       );
 
-      CREATE TABLE IF NOT EXISTS admin_log (
+      CREATE TABLE IF NOT EXISTS ${this.t('admin_log')} (
         id            BIGSERIAL PRIMARY KEY,
-        account_id    BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        account_id    BIGINT NOT NULL REFERENCES ${this.t('accounts')}(id) ON DELETE CASCADE,
         username      TEXT NOT NULL,
         delta         BIGINT NOT NULL,
         balance_after BIGINT NOT NULL,
@@ -193,10 +196,8 @@ export class Store {
     const { salt, hash } = hashPassword(password);
     const name = cleanDisplayName(displayName || username);
 
-    // ON CONFLICT thay cho "kiểm tra rồi mới ghi": hai người đăng ký cùng tên
-    // cùng lúc thì chỉ một người thành công, không có kẽ hở.
     const row = await this.one(
-      `INSERT INTO accounts (username, salt, pass_hash, display_name, balance, created_at)
+      `INSERT INTO ${this.t('accounts')} (username, salt, pass_hash, display_name, balance, created_at)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (username) DO NOTHING
        RETURNING id`,
@@ -217,7 +218,7 @@ export class Store {
 
   async findByUsername(username) {
     const row = await this.one(
-      'SELECT * FROM accounts WHERE username = $1',
+      `SELECT * FROM ${this.t('accounts')} WHERE username = $1`,
       [normalizeUsername(username)],
     );
     return row ? { ...row, id: num(row.id), balance: num(row.balance) } : null;
@@ -226,7 +227,7 @@ export class Store {
   /** Thông tin công khai của tài khoản (không kèm mật khẩu). */
   async getAccount(id) {
     const row = await this.one(
-      'SELECT id, username, display_name, balance, created_at FROM accounts WHERE id = $1',
+      `SELECT id, username, display_name, balance, created_at FROM ${this.t('accounts')} WHERE id = $1`,
       [id],
     );
     if (!row) return null;
@@ -240,7 +241,7 @@ export class Store {
   }
 
   async getBalance(id) {
-    const row = await this.one('SELECT balance FROM accounts WHERE id = $1', [id]);
+    const row = await this.one(`SELECT balance FROM ${this.t('accounts')} WHERE id = $1`, [id]);
     return row ? num(row.balance) : null;
   }
 
@@ -253,7 +254,7 @@ export class Store {
     if (!Number.isInteger(balance) || balance < 0) {
       throw new Error(`Số dư không hợp lệ: ${balance}`);
     }
-    await this.pool.query('UPDATE accounts SET balance = $1 WHERE id = $2', [balance, id]);
+    await this.q(`UPDATE ${this.t('accounts')} SET balance = $1 WHERE id = $2`, [balance, id]);
     return balance;
   }
 
@@ -263,7 +264,7 @@ export class Store {
    */
   async addBalance(id, delta) {
     const row = await this.one(
-      `UPDATE accounts SET balance = balance + $1
+      `UPDATE ${this.t('accounts')} SET balance = balance + $1
        WHERE id = $2 AND balance + $1 >= 0
        RETURNING balance`,
       [delta, id],
@@ -276,7 +277,7 @@ export class Store {
 
   async renameAccount(id, displayName) {
     const name = cleanDisplayName(displayName);
-    await this.pool.query('UPDATE accounts SET display_name = $1 WHERE id = $2', [name, id]);
+    await this.q(`UPDATE ${this.t('accounts')} SET display_name = $1 WHERE id = $2`, [name, id]);
     return name;
   }
 
@@ -284,8 +285,8 @@ export class Store {
 
   async createSession(accountId) {
     const token = randomBytes(24).toString('base64url');
-    await this.pool.query(
-      'INSERT INTO sessions (token, account_id, created_at) VALUES ($1, $2, $3)',
+    await this.q(
+      `INSERT INTO ${this.t('sessions')} (token, account_id, created_at) VALUES ($1, $2, $3)`,
       [token, accountId, Date.now()],
     );
     return token;
@@ -294,7 +295,7 @@ export class Store {
   /** Trả về tài khoản của phiên, hoặc null nếu token sai/hết hạn. */
   async resolveSession(token, maxAgeMs = 30 * 24 * 3600 * 1000) {
     if (!token) return null;
-    const row = await this.one('SELECT * FROM sessions WHERE token = $1', [token]);
+    const row = await this.one(`SELECT * FROM ${this.t('sessions')} WHERE token = $1`, [token]);
     if (!row) return null;
     if (Date.now() - num(row.created_at) > maxAgeMs) {
       await this.destroySession(token);
@@ -304,7 +305,7 @@ export class Store {
   }
 
   async destroySession(token) {
-    await this.pool.query('DELETE FROM sessions WHERE token = $1', [token]);
+    await this.q(`DELETE FROM ${this.t('sessions')} WHERE token = $1`, [token]);
   }
 
   /* ---------------- ĐIỂM DANH ---------------- */
@@ -315,7 +316,7 @@ export class Store {
   async getCheckinCard(accountId, ts = Date.now()) {
     const { weekStart, dayIndex, date } = gameDay(ts);
     const rows = await this.q(
-      'SELECT day_index, amount FROM checkins WHERE account_id = $1 AND week_start = $2',
+      `SELECT day_index, amount FROM ${this.t('checkins')} WHERE account_id = $1 AND week_start = $2`,
       [accountId, weekStart],
     );
     const claimed = new Map(rows.map((r) => [r.day_index, num(r.amount)]));
@@ -345,10 +346,6 @@ export class Store {
   /**
    * Nhận thưởng điểm danh của HÔM NAY.
    * Chỉ nhận được ô của ngày hôm nay — bỏ ngày nào là mất ngày đó.
-   *
-   * Chạy trong một giao dịch: ghi ô điểm danh và cộng xu phải cùng thành công
-   * hoặc cùng thất bại. `ON CONFLICT DO NOTHING` đảm bảo bấm mười lần cùng lúc
-   * cũng chỉ ăn thưởng một lần.
    */
   async claimCheckin(accountId, ts = Date.now()) {
     const { weekStart, dayIndex } = gameDay(ts);
@@ -356,7 +353,7 @@ export class Store {
     try {
       await client.query('BEGIN');
       const ghi = await client.query(
-        `INSERT INTO checkins (account_id, week_start, day_index, amount, claimed_at)
+        `INSERT INTO ${this.t('checkins')} (account_id, week_start, day_index, amount, claimed_at)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (account_id, week_start, day_index) DO NOTHING
          RETURNING 1`,
@@ -367,7 +364,7 @@ export class Store {
         throw new Error('Hôm nay bạn đã điểm danh rồi');
       }
       const bal = await client.query(
-        'UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING balance',
+        `UPDATE ${this.t('accounts')} SET balance = balance + $1 WHERE id = $2 RETURNING balance`,
         [CHECKIN_REWARD, accountId],
       );
       if (bal.rowCount === 0) {
@@ -413,7 +410,7 @@ export class Store {
     try {
       await client.query('BEGIN');
       const upd = await client.query(
-        `UPDATE accounts SET balance = balance + $1
+        `UPDATE ${this.t('accounts')} SET balance = balance + $1
          WHERE id = $2 AND balance + $1 >= 0
          RETURNING balance`,
         [amount, account.id],
@@ -424,7 +421,7 @@ export class Store {
       }
       const balanceAfter = num(upd.rows[0].balance);
       await client.query(
-        `INSERT INTO admin_log (account_id, username, delta, balance_after, reason, created_at)
+        `INSERT INTO ${this.t('admin_log')} (account_id, username, delta, balance_after, reason, created_at)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [account.id, account.username, amount, balanceAfter, String(reason ?? '').slice(0, 200), ts],
       );
@@ -457,10 +454,10 @@ export class Store {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('UPDATE accounts SET balance = $1 WHERE id = $2', [target, account.id]);
+      await client.query(`UPDATE ${this.t('accounts')} SET balance = $1 WHERE id = $2`, [target, account.id]);
       if (delta !== 0) {
         await client.query(
-          `INSERT INTO admin_log (account_id, username, delta, balance_after, reason, created_at)
+          `INSERT INTO ${this.t('admin_log')} (account_id, username, delta, balance_after, reason, created_at)
            VALUES ($1, $2, $3, $4, $5, $6)`,
           [account.id, account.username, delta, target, String(reason ?? '').slice(0, 200), ts],
         );
@@ -484,7 +481,7 @@ export class Store {
   async adminLog(limit = 20) {
     const rows = await this.q(
       `SELECT username, delta, balance_after, reason, created_at
-       FROM admin_log ORDER BY id DESC LIMIT $1`,
+       FROM ${this.t('admin_log')} ORDER BY id DESC LIMIT $1`,
       [Math.max(1, Math.min(200, limit))],
     );
     return rows.map((r) => ({
@@ -502,13 +499,13 @@ export class Store {
     const term = String(q ?? '').trim().toLowerCase();
     const rows = term
       ? await this.q(
-          `SELECT id, username, display_name, balance, created_at FROM accounts
+          `SELECT id, username, display_name, balance, created_at FROM ${this.t('accounts')}
            WHERE LOWER(username) LIKE $1 OR LOWER(display_name) LIKE $1
            ORDER BY balance DESC LIMIT $2`,
           [`%${term}%`, n],
         )
       : await this.q(
-          `SELECT id, username, display_name, balance, created_at FROM accounts
+          `SELECT id, username, display_name, balance, created_at FROM ${this.t('accounts')}
            ORDER BY balance DESC LIMIT $1`,
           [n],
         );
@@ -522,7 +519,7 @@ export class Store {
   }
 
   async countAccounts() {
-    const row = await this.one('SELECT COUNT(*)::int AS n FROM accounts');
+    const row = await this.one(`SELECT COUNT(*)::int AS n FROM ${this.t('accounts')}`);
     return row.n;
   }
 
@@ -530,13 +527,13 @@ export class Store {
 
   /** Tổng xu toàn hệ thống — dùng để kiểm tra không có xu tự sinh ra. */
   async totalBalance() {
-    const row = await this.one('SELECT COALESCE(SUM(balance),0) AS s FROM accounts');
+    const row = await this.one(`SELECT COALESCE(SUM(balance),0) AS s FROM ${this.t('accounts')}`);
     return num(row.s);
   }
 
   async topPlayers(limit = 10) {
     const rows = await this.q(
-      'SELECT display_name, balance FROM accounts ORDER BY balance DESC LIMIT $1',
+      `SELECT display_name, balance FROM ${this.t('accounts')} ORDER BY balance DESC LIMIT $1`,
       [limit],
     );
     return rows.map((r) => ({ display_name: r.display_name, balance: num(r.balance) }));

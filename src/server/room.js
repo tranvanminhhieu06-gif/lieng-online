@@ -22,7 +22,10 @@ import {
   flipCards,
   getPlayer,
   activePlayers,
+  liveInHand,
   canStartRound,
+  settleRound,
+  advanceTurn,
   PHASE,
   DEFAULT_CONFIG,
 } from '../engine/game.js';
@@ -36,7 +39,7 @@ const fmt = (n) => Number(n).toLocaleString('vi-VN');
 export const ROOM_DEFAULTS = {
   ...DEFAULT_CONFIG,
   turnSeconds: 25,          // thời gian suy nghĩ mỗi lượt
-  nextRoundDelaySeconds: 4, // nghỉ giữa hai ván — đủ xem kết quả, không lê thê
+  nextRoundDelaySeconds: 2.2, // nghỉ giữa hai ván — nhanh gọn, hồi hộp
   disconnectGraceSeconds: 90,
   autoStart: true,
   historyLimit: 50,
@@ -214,6 +217,7 @@ export class Room {
    */
   removeSeat(playerId, reason = '', { notify = true } = {}) {
     const p = getPlayer(this.game, playerId);
+    const cashOut = this.cashOutInfo(playerId);
     // Chốt sổ trước khi rời ghế, phòng khi rời giữa chừng.
     this.creditWallet(playerId);
     this.accountOf.delete(playerId);
@@ -224,11 +228,20 @@ export class Room {
         send(conn.ws, {
           t: 'kicked-from-table',
           reason: reason || 'Bạn đã rời bàn.',
-          cashOut: this.cashOutInfo(playerId),
+          cashOut,
         });
       }
     }
     this.seats.delete(playerId);
+
+    const wasInBetting = this.game.phase === PHASE.BETTING;
+    const wasInHand = p?.inHand && !p.folded;
+
+    if (wasInBetting && wasInHand) {
+      p.folded = true;
+      this.game.needsToAct.delete(playerId);
+    }
+
     removePlayer(this.game, playerId);
     if (p) this.pushSystem(`${p.name} rời bàn${reason ? ` (${reason})` : ''}.`);
     if (this.hostId === playerId) {
@@ -236,9 +249,26 @@ export class Room {
         (id) => !getPlayer(this.game, id)?.isBot,
       ) ?? null;
     }
-    // Nếu người rời đang tới lượt thì phải đẩy ván đi tiếp
-    if (this.game.phase === PHASE.BETTING && !currentActor(this.game)) {
-      this.clearTurnTimer();
+
+    if (wasInBetting) {
+      const live = liveInHand(this.game);
+      if (live.length <= 1) {
+        const events = settleRound(this.game);
+        this.broadcastEvents(events);
+        this.afterEngineStep();
+      } else {
+        const actor = currentActor(this.game);
+        if (!actor || actor.id === playerId) {
+          const next = advanceTurn(this.game);
+          if (next) {
+            this.broadcastEvents([{ type: 'turn', playerId: next.id }]);
+          } else {
+            const events = settleRound(this.game);
+            this.broadcastEvents(events);
+          }
+          this.afterEngineStep();
+        }
+      }
     }
   }
 
@@ -297,7 +327,7 @@ export class Room {
    * Bàn công khai tự chia ván khi đủ người — không cần ai bấm "Bắt đầu".
    * Phòng riêng thì vẫn để chủ bàn quyết định lúc nào chia.
    */
-  maybeAutoStart(delayMs = 2000) {
+  maybeAutoStart(delayMs = 800) {
     if (!this.walletMode || this.closed) return;
     if (!this.config.autoStart) return;
     if (this.nextRoundTimer) return;
@@ -450,6 +480,7 @@ export class Room {
 
     const base = p.walletBase ?? p.chips;
     const laiLo = p.chips - base;
+    p.walletBase = p.chips; // Cập nhật mốc ngay lập tức đồng bộ để chống trùng lặp
 
     this.queueWrite(async () => {
       // delta = 0 vẫn gọi: câu lệnh trả về số dư hiện tại, nhờ đó chip trên bàn

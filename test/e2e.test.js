@@ -9,6 +9,7 @@ import { WebSocket } from 'ws';
 
 // Phải đặt trước khi nạp server: mỗi file test dùng một schema Postgres riêng
 import { TEST_DB_URL, uniqueSchema } from './pg-helper.js';
+delete process.env.ADMIN_PASSWORD;
 process.env.DATABASE_URL = TEST_DB_URL;
 const TEST_SCHEMA = uniqueSchema('e2e');
 process.env.DB_SCHEMA = TEST_SCHEMA;

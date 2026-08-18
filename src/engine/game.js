@@ -107,11 +107,21 @@ export function addPlayer(game, { id, name, isBot = false, chips }) {
 export function removePlayer(game, id) {
   const idx = game.players.findIndex((p) => p.id === id);
   if (idx === -1) return false;
-  game.players.splice(idx, 1);
+  const p = game.players[idx];
   game.seatOrder = game.seatOrder.filter((x) => x !== id);
   game.order = game.order.filter((x) => x !== id);
   game.needsToAct.delete(id);
-  game.players.forEach((p, i) => { p.seat = i; });
+
+  if (game.phase === PHASE.BETTING && p.committed > 0) {
+    p.folded = true;
+    p.inHand = false;
+    p.eliminated = true;
+    p.left = true;
+  } else {
+    game.players.splice(idx, 1);
+  }
+
+  game.players.filter((x) => !x.left).forEach((x, i) => { x.seat = i; });
   return true;
 }
 
@@ -306,7 +316,7 @@ export function currentActor(game) {
 /**
  * Tìm người tiếp theo phải hành động. Trả về null nếu vòng cược đã xong.
  */
-function advanceTurn(game) {
+export function advanceTurn(game) {
   const n = game.order.length;
   if (n === 0) return null;
   if (liveInHand(game).length <= 1) return null;
@@ -514,12 +524,12 @@ export function timeoutAction(game) {
 /*  NGỬA BÀI & CHIA TIỀN                                               */
 /* ================================================================== */
 
-function settleRound(game) {
+export function settleRound(game) {
   game.phase = PHASE.SHOWDOWN;
   const events = [];
 
-  const contenders = game.players.filter((p) => p.inHand);
-  const live = contenders.filter((p) => !p.folded);
+  const contenders = game.players.filter((p) => p.inHand || p.committed > 0);
+  const live = contenders.filter((p) => !p.folded && !p.left);
 
   // Hết ván thì ai cũng được xem lại bài của chính mình, kể cả lá chưa kịp lật
   // hay vừa úp mù.
@@ -623,6 +633,9 @@ function settleRound(game) {
     game.phase = PHASE.ROUND_OVER;
   }
 
+  game.players = game.players.filter((p) => !p.left);
+  game.players.forEach((p, i) => { p.seat = i; });
+
   return events;
 }
 
@@ -701,7 +714,7 @@ export function publicView(game, viewerId = null) {
     actionSeq: game.actionSeq,
     dealerId: game.players[game.dealerIndex]?.id ?? null,
     turnPlayerId: actor?.id ?? null,
-    players: game.players.map((p) => ({
+    players: game.players.filter((p) => !p.left).map((p) => ({
       id: p.id,
       name: p.name,
       isBot: p.isBot,

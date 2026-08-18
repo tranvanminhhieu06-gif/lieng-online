@@ -7,7 +7,10 @@
   "scripts": {
     "start": "node src/server/index.js",
     "dev": "node --watch src/server/index.js",
-    "test": "node --test --test-timeout=120000 test/*.test.js"
+    "test": "node --test --test-timeout=120000 test/*.test.js",
+    "push": "node scripts/autopush.js",
+    "push:watch": "node scripts/autopush.js --watch",
+    "push:interval": "node scripts/autopush.js --interval"
   },
   "engines": {
     "node": ">=20"

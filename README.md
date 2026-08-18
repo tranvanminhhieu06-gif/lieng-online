@@ -17,13 +17,13 @@ lẫn bản chạy thật.
 npm install
 
 # Windows PowerShell
-$env:DATABASE_URL='postgresql://user:matkhau@ep-xxx.neon.tech/dbname?sslmode=require'
+$env:DATABASE_URL='postgresql://neondb_owner:npg_kOMQvfm36tau@ep-cool-brook-azycvpan-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
 npm start
 ```
 
 ```bash
 # macOS / Linux
-export DATABASE_URL='postgresql://...'
+export DATABASE_URL='postgresql://neondb_owner:npg_kOMQvfm36tau@ep-cool-brook-azycvpan-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
 npm start
 ```
 
@@ -208,10 +208,10 @@ Trang này in ra tiền, nên **mặc định tắt hẳn**. Chỉ bật khi ch�
 
 ```bash
 # Linux / macOS
-ADMIN_PASSWORD='mot-mat-khau-that-dai' npm start
+ADMIN_PASSWORD='admin123' npm start
 
 # Windows PowerShell
-$env:ADMIN_PASSWORD='mot-mat-khau-that-dai'; npm start
+$env:ADMIN_PASSWORD='admin123'; npm start
 ```
 
 Rồi mở http://localhost:3000/admin
@@ -446,15 +446,35 @@ phải đăng ký lại từ đầu thì `DATABASE_URL` chưa được đặt đ
 Muốn xem tận mắt: vào Neon → **Tables** → bảng `accounts`, sẽ thấy tài khoản vừa tạo
 nằm đó.
 
-### Bước 5. Về sau, mỗi lần sửa code
+### Bước 5. Về sau, mỗi lần sửa code (Tự động đẩy lên Git)
 
+Dự án đã tích hợp sẵn công cụ tự động hóa đẩy code lên Git:
+
+**Cách 1: Đẩy ngay lập tức bằng 1 lệnh**
 ```powershell
-git add .
-git commit -m "mô tả thay đổi"
-git push
+npm run push
+# Hoặc truyền kèm thông điệp:
+npm run push "Cập nhật giao diện bàn chơi"
 ```
 
-Render tự deploy lại khi thấy commit mới trên nhánh `main`.
+**Cách 2: Đẩy tự động liên tục khi lưu file (Watch Mode)**
+```powershell
+npm run push:watch
+# Tự động phát hiện khi bạn lưu file và gom lại đẩy lên Git sau 15 giây
+```
+
+**Cách 3: Đẩy định kỳ mỗi N phút**
+```powershell
+npm run push:interval 5
+# Tự động kiểm tra và đẩy lên Git mỗi 5 phút nếu có thay đổi mới
+```
+
+**Cách 4: Click chuột 1 chạm trên Windows**
+- Nhấp đúp chuột vào file `autopush.bat` trong thư mục dự án để đẩy code ngay lập tức.
+
+---
+
+Render tự động phát hiện commit mới trên nhánh `main` và deploy phiên bản mới trong vòng 1-2 phút.
 
 ### Các biến môi trường
 
