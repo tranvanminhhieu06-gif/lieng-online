@@ -9,6 +9,7 @@ import { handStrengthScore } from './evaluate.js';
 
 export const BOT_NAMES = [
   'Cô Sáu', 'Chú Tư', 'Anh Ba', 'Dì Bảy', 'Bác Hai', 'Cậu Út',
+  'Chị Năm', 'Thím Tám', 'Anh Chín', 'Chú Mười', 'Bác Ba Phi', 'Cô Út',
 ];
 
 export const BOT_PROFILES = {

@@ -289,3 +289,36 @@ test('hũ phụ hoạt động trong ván thật: người tất tay ít không 
   assert.equal(game.pot, 0);
   assert.ok(game.lastResult.pots.length >= 1);
 });
+
+test('bàn 10 người: chia đủ 30 lá, thu đủ tiền sàn và chơi trọn ván', () => {
+  const game = newGame(99, 10, { maxPlayers: 10, ante: 20, startChips: 1000 });
+  assert.equal(game.players.length, 10);
+  const bank = totalChips(game);
+  const { ok } = startAndReveal(game);
+  assert.ok(ok);
+  assert.equal(game.pot, 200, '10 người x 20 ante = 200');
+  assert.equal(totalChips(game), bank);
+
+  const allCards = new Set();
+  for (const p of game.players) {
+    assert.equal(p.hand.length, 3);
+    for (const c of p.hand) {
+      const key = `${c.rank}-${c.suit}`;
+      assert.ok(!allCards.has(key), `Trùng lá ${key}`);
+      allCards.add(key);
+    }
+  }
+  assert.equal(allCards.size, 30, 'Đúng 30 lá bài riêng biệt từ bộ bài');
+
+  let guard = 0;
+  while (game.phase === PHASE.BETTING && guard++ < 100) {
+    const actor = currentActor(game);
+    if (!actor) break;
+    const legal = getLegalActions(game);
+    const action = decideBotAction(actor, legal, { ante: 20 });
+    applyAction(game, actor.id, action);
+  }
+
+  assert.ok(game.phase === PHASE.ROUND_OVER || game.phase === PHASE.GAME_OVER);
+  assert.equal(totalChips(game), bank, 'Tiền bảo toàn sau ván 10 người');
+});

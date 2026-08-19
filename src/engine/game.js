@@ -34,7 +34,7 @@ export const DEFAULT_CONFIG = {
   startChips: 500,
   maxRaises: 20,       // số lần tố tối đa trong một ván (cho phép tố cộng dồn liên tục)
   minPlayers: 2,
-  maxPlayers: 6,
+  maxPlayers: 10,
   tiebreakBySuit: true,
 };
 

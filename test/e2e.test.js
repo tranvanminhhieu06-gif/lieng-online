@@ -800,3 +800,23 @@ test('bàn đầy thì người vào sau tự chuyển sang xem', async () => {
 
   host.close(); late.close();
 });
+
+test('tạo phòng 10 người, thêm đủ 9 bot và bắt đầu ván thành công', async () => {
+  const host = await newClient('Chủ Chiếu');
+  host.send({ t: 'create', bots: 9, config: { maxPlayers: 10 } });
+  await host.waitFor((c) => c.room?.canStart && c.state?.players.length === 10);
+  assert.equal(host.state.players.length, 10, 'Đủ 10 người trong bàn');
+  assert.equal(host.state.players.filter((p) => p.isBot).length, 9, 'Đủ 9 bot');
+
+  // Người thứ 11 vào sẽ bị chuyển sang xem vì bàn đã đầy 10 người
+  const p11 = await newClient('Khách 11');
+  p11.send({ t: 'join', code: host.joined.code });
+  await p11.waitJoined();
+  assert.equal(p11.joined.spectating, true);
+
+  host.send({ t: 'start' });
+  await host.waitFor((c) => c.state?.phase === 'betting', { label: 'ván 10 người bắt đầu' });
+  assert.equal(host.state.phase, 'betting');
+
+  host.close(); p11.close();
+});

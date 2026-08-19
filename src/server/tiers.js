@@ -20,7 +20,7 @@ export const TIERS = [
 ];
 
 /** Số ghế mỗi bàn công khai. */
-export const TIER_MAX_PLAYERS = 5;
+export const TIER_MAX_PLAYERS = 10;
 
 /** Vốn của bot ở bàn công khai — được bơm lại về mức này sau mỗi ván. */
 export const BOT_STACK_MULTIPLIER = 10;

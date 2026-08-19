@@ -409,6 +409,12 @@
     filter:drop-shadow(0 0 18px rgba(255,255,255,1)) drop-shadow(0 0 30px rgba(255,255,255,.8));
   }
 
+  /* Tối ưu kích thước khi bàn đông người (7 - 10 người) */
+  .felt.crowded .seat:not(.me) .cards-row{ gap:3px; }
+  .felt.crowded .seat:not(.me) .card{ width:36px; height:51px; font-size:10px; }
+  .felt.crowded .seat:not(.me) .seat-name{ font-size:11px; padding:1.5px 6px; }
+  .felt.crowded .seat:not(.me) .seat-chips{ font-size:10.5px; padding:1.5px 7px; }
+
   .seat-badge-glow{
     display:none; position:absolute; top:-16px; font-family:'Be Vietnam Pro',sans-serif;
     font-size:11px; font-weight:900; letter-spacing:.1em; padding:3px 10px; border-radius:12px;
@@ -1004,6 +1010,12 @@
     .hand-label{ font-size:9.5px; min-height:13px; }
     .seat-bet{ font-size:9.5px; min-height:13px; }
 
+    .felt.crowded .seat:not(.me) .cards-row{ gap:1.5px; }
+    .felt.crowded .seat:not(.me) .card{ width:26px; height:37px; font-size:8px; border-radius:4px; padding:1.5px; }
+    .felt.crowded .seat:not(.me) .card .suit-big{ font-size:11px; }
+    .felt.crowded .seat:not(.me) .seat-name{ font-size:9px; padding:1px 4px; }
+    .felt.crowded .seat:not(.me) .seat-chips{ font-size:8.5px; padding:1px 4px; }
+
     /* HUD Bảng điều khiển phía dưới */
     .hud{
       position:fixed; left:0; right:0; bottom:0;
@@ -1166,7 +1178,8 @@
           <label for="cfgMax">Tối đa người</label>
           <select id="cfgMax">
             <option>2</option><option>3</option><option>4</option>
-            <option selected>5</option><option>6</option>
+            <option>5</option><option>6</option><option>7</option>
+            <option>8</option><option>9</option><option selected>10</option>
           </select>
         </div>
         <div class="field">
@@ -1176,6 +1189,12 @@
             <option value="1">1 bot</option>
             <option value="2" selected>2 bot</option>
             <option value="3">3 bot</option>
+            <option value="4">4 bot</option>
+            <option value="5">5 bot</option>
+            <option value="6">6 bot</option>
+            <option value="7">7 bot</option>
+            <option value="8">8 bot</option>
+            <option value="9">9 bot</option>
           </select>
         </div>
       </div>
@@ -1890,8 +1909,8 @@ function seatPositions(n, felt){
 
   if(isPortrait){
     // Bố cục Màn hình dọc: Ghế bố trí đều quanh bàn nỉ hình oval đứng
-    const rx = Math.max(26, 50 - (68 / w) * 100);
-    const ry = Math.max(28, 50 - (72 / h) * 100);
+    const rx = Math.max(26, 50 - ((n > 6 ? 56 : 68) / w) * 100);
+    const ry = Math.max(28, 50 - ((n > 6 ? 60 : 72) / h) * 100);
     const out = [];
     for(let i = 0; i < n; i++){
       // i = 0 là ghế của mình, luôn ở đáy bàn (góc 90 độ)
@@ -1906,8 +1925,8 @@ function seatPositions(n, felt){
 
   // Bố cục Màn hình ngang (Landscape / Desktop)
   const narrow = w < 560;
-  const seatW = narrow ? 88 : 116;
-  const seatH = narrow ? 112 : 156;
+  const seatW = narrow ? (n > 6 ? 74 : 88) : (n > 6 ? 96 : 116);
+  const seatH = narrow ? (n > 6 ? 94 : 112) : (n > 6 ? 124 : 156);
   const rx = Math.max(16, 50 - (seatW / 2 / w) * 100 - 2);
   const ry = Math.max(14, 50 - (seatH / 2 / h) * 100 - 2);
 
@@ -2115,6 +2134,7 @@ function render(){
 
   const felt = $('felt');
   const players = orderedPlayers();
+  felt.classList.toggle('crowded', players.length > 6);
   const pos = seatPositions(Math.max(players.length, 1), felt);
   const feltRect = { w: felt.clientWidth || 900, h: felt.clientHeight || 500 };
 
@@ -2291,7 +2311,7 @@ function renderControls(){
   // chiếm chỗ và báo lỗi khi bấm, nên ẩn hẳn đi.
   hostRow.style.display = (ui.isHost && !ui.room?.walletMode) ? 'flex' : 'none';
   $('btnStart').disabled = !(ui.room?.canStart && st.phase !== 'betting' && st.phase !== 'showdown');
-  $('btnAddBot').disabled = (st.players.length >= (ui.room?.config?.maxPlayers ?? 6)) || st.phase === 'betting';
+  $('btnAddBot').disabled = (st.players.length >= (ui.room?.config?.maxPlayers ?? 10)) || st.phase === 'betting';
 
   const enable = (to, theo, up) => {
     $('btnTo').disabled = !to; $('btnTheo').disabled = !theo; $('btnUp').disabled = !up;

@@ -571,7 +571,7 @@ function sanitizeConfig(config = {}) {
     ante: clamp(config.ante, 1, 1000, ROOM_DEFAULTS.ante),
     startChips: clamp(config.startChips, 20, 1_000_000, ROOM_DEFAULTS.startChips),
     maxRaises: clamp(config.maxRaises, 1, 20, ROOM_DEFAULTS.maxRaises),
-    maxPlayers: clamp(config.maxPlayers, 2, 6, ROOM_DEFAULTS.maxPlayers),
+    maxPlayers: clamp(config.maxPlayers, 2, 10, ROOM_DEFAULTS.maxPlayers),
     turnSeconds: clamp(config.turnSeconds, 8, 120, ROOM_DEFAULTS.turnSeconds),
     tiebreakBySuit: config.tiebreakBySuit !== false,
     autoStart: config.autoStart !== false,
