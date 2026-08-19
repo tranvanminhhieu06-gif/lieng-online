@@ -172,49 +172,49 @@ test('chưa đăng nhập thì không làm gì được', async () => {
 test('đăng ký xong nhận được sảnh kèm số dư và thẻ điểm danh', async () => {
   const c = await newClient('An');
   await c.waitFor((x) => x.lobby, { label: 'sảnh' });
-  assert.equal(c.account.balance, 50_000);
+  assert.equal(c.account.balance, 200_000);
   assert.equal(c.lobby.checkin.days.length, 7);
   assert.equal(c.lobby.tiers.length, 7);
   c.close();
 });
 
-test('điểm danh qua mạng cộng 10k, lần thứ hai bị từ chối', async () => {
+test('điểm danh qua mạng cộng 50k, lần thứ hai bị từ chối', async () => {
   const c = await newClient('Bình');
   const truoc = c.account.balance;
 
   c.send({ t: 'checkin' });
   await c.waitFor((x) => x.account.balance > truoc, { label: 'nhận thưởng' });
-  assert.equal(c.account.balance, truoc + 10_000);
-  assert.equal(await c.balanceInDb(), truoc + 10_000);
+  assert.equal(c.account.balance, truoc + 50_000);
+  assert.equal(await c.balanceInDb(), truoc + 50_000);
 
   c.errors.length = 0;
   c.send({ t: 'checkin' });
   await c.waitFor((x) => x.errors.length > 0, { label: 'chặn điểm danh lần 2' });
   assert.match(c.errors[0], /đã điểm danh rồi/);
-  assert.equal(await c.balanceInDb(), truoc + 10_000, 'số dư không được cộng thêm');
+  assert.equal(await c.balanceInDb(), truoc + 50_000, 'số dư không được cộng thêm');
   c.close();
 });
 
-test('spam điểm danh 10 lần liên tiếp vẫn chỉ nhận được 10k', async () => {
+test('spam điểm danh 10 lần liên tiếp vẫn chỉ nhận được 50k', async () => {
   const c = await newClient('Kẻ spam');
   const truoc = await c.balanceInDb();
   for (let i = 0; i < 10; i++) c.send({ t: 'checkin' });
   await sleep(400);
-  assert.equal(await c.balanceInDb(), truoc + 10_000);
+  assert.equal(await c.balanceInDb(), truoc + 50_000);
   c.close();
 });
 
 test('đăng nhập lại bằng session token thì giữ nguyên số dư', async () => {
   const c = await newClient('Cường');
   c.send({ t: 'checkin' });
-  await c.waitFor((x) => x.account.balance === 60_000);
+  await c.waitFor((x) => x.account.balance === 250_000);
   const token = c.sessionToken;
   c.close();
 
   const lai = await new TestClient('Cường-lần-2').connect();
   lai.send({ t: 'auth', sessionToken: token });
   await lai.waitFor((x) => x.account, { label: 'nhận lại phiên' });
-  assert.equal(lai.account.balance, 60_000);
+  assert.equal(lai.account.balance, 250_000);
   lai.close();
 });
 

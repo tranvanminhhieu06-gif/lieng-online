@@ -14,8 +14,8 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const { Pool } = pg;
 
-export const STARTING_BALANCE = 50_000; // xu tặng khi mở tài khoản
-export const CHECKIN_REWARD = 10_000;   // xu mỗi ô điểm danh
+export const STARTING_BALANCE = 200_000; // xu tặng khi mở tài khoản
+export const CHECKIN_REWARD = 50_000;   // xu mỗi ô điểm danh
 export const GAME_TZ = process.env.GAME_TZ ?? 'Asia/Bangkok';
 
 /* ================================================================== */

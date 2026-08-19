@@ -117,7 +117,7 @@ test('thẻ điểm danh có đúng 7 ô từ T2 tới CN', async () => {
   await s.close();
 });
 
-test('điểm danh nhận đúng 10k xu', async () => {
+test('điểm danh nhận đúng 50k xu', async () => {
   const s = await newTestStore();
   const acc = await s.register('minhhieu', 'matkhau123', 'Minh Hiếu');
   const res = await s.claimCheckin(acc.id, FRI);
@@ -155,7 +155,7 @@ test('sang ngày mới thì điểm danh lại được', async () => {
   await s.close();
 });
 
-test('sáng thứ 2 thẻ reset, điểm danh cả tuần được tối đa 70k', async () => {
+test('sáng thứ 2 thẻ reset, điểm danh cả tuần được tối đa 350k', async () => {
   const s = await newTestStore();
   const acc = await s.register('minhhieu', 'matkhau123', 'Minh Hiếu');
   await s.claimCheckin(acc.id, SUN);
@@ -172,7 +172,7 @@ test('sáng thứ 2 thẻ reset, điểm danh cả tuần được tối đa 70k
   for (let d = 0; d < 7; d++) await s.claimCheckin(acc.id, MON + d * 86_400_000);
   const full = await s.getCheckinCard(acc.id, MON + 6 * 86_400_000);
   assert.equal(full.claimedThisWeek, 7);
-  assert.equal(full.totalThisWeek, 70_000);
+  assert.equal(full.totalThisWeek, 7 * CHECKIN_REWARD);
   assert.ok(full.days.every((d) => d.claimed));
   await s.close();
 });

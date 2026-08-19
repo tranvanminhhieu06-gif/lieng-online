@@ -27,7 +27,7 @@ export DATABASE_URL='postgresql://neondb_owner:npg_kOMQvfm36tau@ep-cool-brook-az
 npm start
 ```
 
-Mở http://localhost:3000 → **Đăng ký** (được tặng 50.000 xu) → **Điểm danh** → chọn một mức bàn.
+Mở http://localhost:3000 → **Đăng ký** (được tặng 200.000 xu) → **Điểm danh** → chọn một mức bàn.
 Mở thêm tab ẩn danh, đăng ký tài khoản khác, vào cùng mức bàn để chơi với nhau.
 
 ### Chạy test
@@ -49,12 +49,12 @@ nếu bạn muốn chắc chắn.
 ## Tài khoản, ví xu và điểm danh
 
 Đăng ký bằng tên đăng nhập + mật khẩu. Mật khẩu băm bằng `scrypt` với salt riêng
-cho từng tài khoản, không lưu dạng thô. Tài khoản mới được tặng **50.000 xu**.
+cho từng tài khoản, không lưu dạng thô. Tài khoản mới được tặng **200.000 xu**.
 
-**Điểm danh** là thẻ 7 ô từ thứ 2 tới chủ nhật, mỗi ô **10.000 xu**:
+**Điểm danh** là thẻ 7 ô từ thứ 2 tới chủ nhật, mỗi ô **50.000 xu**:
 
 - Mỗi ngày chỉ nhận được ô của ngày hôm đó. Bỏ ngày nào mất ngày đó, không nhận bù.
-- Sáng thứ 2 thẻ reset về trắng. Đi đủ cả tuần được 70.000 xu.
+- Sáng thứ 2 thẻ reset về trắng. Đi đủ cả tuần được 350.000 xu.
 - Ngày được tính theo **giờ Việt Nam**, không theo giờ máy chủ — server đặt ở nước
   ngoài vẫn đổi ngày đúng lúc 0h ở Việt Nam. Đổi bằng biến `GAME_TZ`.
 - Bảng `checkins` khoá theo `(tài khoản, tuần, thứ)` nên bấm điểm danh 10 lần liên
@@ -545,7 +545,7 @@ Mặc định nằm ở `ROOM_DEFAULTS` trong `src/server/room.js`. Server luôn
 - **Lịch sử ván lưu lâu dài.** Hiện chỉ giữ 50 ván gần nhất trong RAM, phòng đóng là mất.
 - **Ghép người ngẫu nhiên có hàng đợi.** Hiện chỉ xếp vào bàn đông nhất còn ghế trống.
 - **Chống thông đồng.** Hai người cùng bàn gọi điện cho nhau xem bài của nhau — không có giải pháp kỹ thuật thuần, thường phải phát hiện qua thống kê.
-- **Chống cày tài khoản ảo.** Tài khoản mới được 50.000 xu và mỗi ngày 10.000 xu, nên
+- **Chống cày tài khoản ảo.** Tài khoản mới được 200.000 xu và mỗi ngày 50.000 xu, nên
   tạo hàng loạt tài khoản là cày được xu. Cần xác thực email/SĐT nếu muốn chặn thật.
 
 ---
